@@ -30,7 +30,7 @@ def test___init__(json_bytes_data: Dict):
 
 
 def test___bytes__(json_bytes_data: Dict):
-    """Test __str__ pass-through for different variants."""
+    """Test __bytes__ pass-through for different variants."""
     assert bytes(json_bytes_data["json_bytes"]) == json_bytes_data["bytes"]
 
 

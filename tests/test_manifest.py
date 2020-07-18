@@ -58,7 +58,7 @@ def test___init__(manifest_data: Dict):
 
 
 def test___bytes__(manifest_data: Dict):
-    """Test __str__ pass-through for different variants."""
+    """Test __bytes__ pass-through for different variants."""
     assert bytes(manifest_data["manifest"]) == manifest_data["bytes"]
 
 
