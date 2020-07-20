@@ -24,7 +24,7 @@ class Manifest(JsonBytes):
         """
         self.media_type = None
         self._set_media_type(media_type)
-        super(Manifest, self).__init__(manifest, **kwargs)
+        super().__init__(manifest, **kwargs)
 
     def _detect_media_type(self):
         """
@@ -57,7 +57,7 @@ class Manifest(JsonBytes):
         Args:
             _bytes: The raw bytes value.
         """
-        super(Manifest, self)._set_bytes(_bytes)
+        super()._set_bytes(_bytes)
         if not self.media_type:
             self._detect_media_type()
 
@@ -68,7 +68,7 @@ class Manifest(JsonBytes):
         Args:
             json: The internal JSON object.
         """
-        super(Manifest, self)._set_json(json)
+        super()._set_json(json)
         if not self.media_type:
             self._detect_media_type()
 

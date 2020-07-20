@@ -4,8 +4,9 @@
 JSON without canonicalization really bytes ;)
 """
 
-import copy
 import json
+
+from copy import deepcopy
 
 import canonicaljson
 
@@ -76,4 +77,4 @@ class JsonBytes:
         Returns:
             The image bytes in JSON form.
         """
-        return copy.deepcopy(self.json)
+        return deepcopy(self.json)
