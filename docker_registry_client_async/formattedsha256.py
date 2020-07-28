@@ -18,7 +18,7 @@ class FormattedSHA256(str):
         return obj
 
     @staticmethod
-    def parse(digest: str):
+    def parse(digest: str) -> "FormattedSHA256":
         """
         Initializes a FormattedSHA256 from a given SHA256 digest value.
 
@@ -33,7 +33,7 @@ class FormattedSHA256(str):
         return FormattedSHA256(digest[7:])
 
     @staticmethod
-    def calculate(data: bytes):
+    def calculate(data: bytes) -> "FormattedSHA256":
         """
         Calculates the digest value for given data.
 

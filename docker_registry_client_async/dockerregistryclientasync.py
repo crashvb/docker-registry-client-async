@@ -9,7 +9,7 @@ import re
 
 from http import HTTPStatus
 from pathlib import Path
-from typing import Dict
+from typing import Any, Dict, Union
 from urllib.parse import urlparse
 
 import aiofiles
@@ -18,6 +18,7 @@ import www_authenticate
 from aiohttp import AsyncResolver, ClientResponse, ClientSession, TCPConnector
 
 from .formattedsha256 import FormattedSHA256
+from .hashinggenerator import HashingGenerator
 from .imagename import ImageName
 from .manifest import Manifest
 from .specs import (
@@ -26,7 +27,22 @@ from .specs import (
     MediaTypes,
     OCIMediaTypes,
 )
-from .utils import chunk_from_disk, chunk_to_disk, must_be_equal
+from .typing import (
+    DockerRegistryClientAsyncResult,
+    DockerRegistryClientAsyncGetBlob,
+    DockerRegistryClientAsyncGetBlobUpload,
+    DockerRegistryClientAsyncGetCatalog,
+    DockerRegistryClientAsyncGetManifest,
+    DockerRegistryClientAsyncGetTags,
+    DockerRegistryClientAsyncHeadBlob,
+    DockerRegistryClientAsyncHeadManifest,
+    DockerRegistryClientAsyncXBlobUpload,
+    DockerRegistryClientAsyncPatchBlobUploadFromDisk,
+    DockerRegistryClientAsyncPutBlobUpload,
+    DockerRegistryClientAsyncPutManifest,
+    UtilsChunkToFile,
+)
+from .utils import chunk_to_file, must_be_equal
 
 LOGGER = logging.getLogger(__name__)
 
@@ -118,12 +134,11 @@ class DockerRegistryClientAsync:
             url = DockerAuthentication.DOCKERHUB_URL_PATTERN.format(
                 bearer["realm"], bearer["service"], scope
             )
-            client_response = await client_session.get(headers=headers, url=url)
-            must_be_equal(
-                HTTPStatus.OK, client_response.status, "Failed to retrieve bearer token"
+            client_response = await client_session.get(
+                headers=headers, raise_for_status=True, url=url
             )
-
             payload = await client_response.json()
+
             self.tokens[endpoint][scope] = payload["token"]
 
         return self.tokens[endpoint][scope]
@@ -174,7 +189,7 @@ class DockerRegistryClientAsync:
         return result
 
     async def _get_request_headers(
-        self, image_name: ImageName, headers: Dict = None, *, scope=None, **kwargs
+        self, image_name: ImageName, headers: Dict = None, *, scope=None
     ) -> Dict:
         """
         Generates request headers that contain registry credentials for a given registry endpoint.
@@ -257,7 +272,7 @@ class DockerRegistryClientAsync:
 
     async def delete_blob(
         self, image_name: ImageName, digest: FormattedSHA256, **kwargs
-    ) -> Dict:
+    ) -> DockerRegistryClientAsyncResult:
         """
         Delete the blob identified by name and digest.
 
@@ -302,7 +317,9 @@ class DockerRegistryClientAsync:
         client_session = await self._get_client_session()
         return await client_session.delete(headers=headers, url=location, **kwargs)
 
-    async def delete_blob_upload(self, location: str, **kwargs) -> Dict:
+    async def delete_blob_upload(
+        self, location: str, **kwargs
+    ) -> DockerRegistryClientAsyncResult:
         """
         Cancel outstanding upload processes, releasing associated resources. If this is not called, the unfinished
         uploads will eventually timeout.
@@ -347,7 +364,9 @@ class DockerRegistryClientAsync:
         client_session = await self._get_client_session()
         return await client_session.delete(headers=headers, url=url, **kwargs)
 
-    async def delete_manifest(self, image_name: ImageName, **kwargs) -> Dict:
+    async def delete_manifest(
+        self, image_name: ImageName, **kwargs
+    ) -> DockerRegistryClientAsyncResult:
         """
         Delete the manifest identified by name and reference. Note that a manifest can only be deleted by digest.
 
@@ -411,7 +430,7 @@ class DockerRegistryClientAsync:
         *,
         accept: str = None,
         **kwargs,
-    ) -> Dict:
+    ) -> DockerRegistryClientAsyncGetBlob:
         """
         Retrieve the blob from the registry identified by digest.
 
@@ -442,7 +461,7 @@ class DockerRegistryClientAsync:
         accept: str = None,
         file_is_async: bool = True,
         **kwargs,
-    ) -> Dict:
+    ) -> UtilsChunkToFile:
         """
         Fetch the manifest identified by name and reference where reference can be a tag or digest.
 
@@ -464,7 +483,7 @@ class DockerRegistryClientAsync:
         client_response = await self._get_blob(
             image_name, digest, accept=accept, raise_for_status=True, **kwargs
         )
-        return await chunk_to_disk(client_response, file, file_is_async)
+        return await chunk_to_file(client_response, file, file_is_async=file_is_async)
 
     async def _get_blob_upload(self, location: str, **kwargs) -> ClientResponse:
         """
@@ -489,7 +508,9 @@ class DockerRegistryClientAsync:
         client_session = await self._get_client_session()
         return await client_session.get(headers=headers, url=location, **kwargs)
 
-    async def get_blob_upload(self, location: str, **kwargs) -> Dict:
+    async def get_blob_upload(
+        self, location: str, **kwargs
+    ) -> DockerRegistryClientAsyncGetBlobUpload:
         """
         Retrieve status of upload identified by uuid.
 
@@ -539,7 +560,9 @@ class DockerRegistryClientAsync:
             headers=headers, params=params, url=url, **kwargs
         )
 
-    async def get_catalog(self, image_name: ImageName, **kwargs) -> Dict:
+    async def get_catalog(
+        self, image_name: ImageName, **kwargs
+    ) -> DockerRegistryClientAsyncGetCatalog:
         """
         List a set of available repositories in the local registry cluster.
 
@@ -598,7 +621,7 @@ class DockerRegistryClientAsync:
 
     async def get_manifest(
         self, image_name: ImageName, *, accept: str = None, **kwargs
-    ) -> Dict:
+    ) -> DockerRegistryClientAsyncGetManifest:
         """
         Fetch the manifest identified by name and reference where reference can be a tag or digest.
 
@@ -627,7 +650,7 @@ class DockerRegistryClientAsync:
         accept: str = None,
         file_is_async: bool = True,
         **kwargs,
-    ) -> Dict:
+    ) -> UtilsChunkToFile:
         """
         Fetch the manifest identified by name and reference where reference can be a tag or digest.
 
@@ -648,7 +671,7 @@ class DockerRegistryClientAsync:
         client_response = await self._get_manifest(
             image_name, accept=accept, raise_for_status=True, **kwargs
         )
-        return await chunk_to_disk(client_response, file, file_is_async)
+        return await chunk_to_file(client_response, file, file_is_async=file_is_async)
 
     async def _get_tags(self, image_name: ImageName, **kwargs) -> ClientResponse:
         """
@@ -675,7 +698,9 @@ class DockerRegistryClientAsync:
         client_session = await self._get_client_session()
         return await client_session.get(headers=headers, url=url, **kwargs)
 
-    async def get_tags(self, image_name: ImageName, **kwargs) -> Dict:
+    async def get_tags(
+        self, image_name: ImageName, **kwargs
+    ) -> DockerRegistryClientAsyncGetTags:
         """
         Fetch the tags under the repository identified by name.
 
@@ -720,7 +745,9 @@ class DockerRegistryClientAsync:
         client_session = await self._get_client_session()
         return await client_session.head(headers=headers, url=url, **kwargs)
 
-    async def get_version(self, image_name: ImageName, **kwargs) -> Dict:
+    async def get_version(
+        self, image_name: ImageName, **kwargs
+    ) -> DockerRegistryClientAsyncResult:
         """
         Check that the endpoint implements Docker Registry API V2.
 
@@ -770,7 +797,7 @@ class DockerRegistryClientAsync:
 
     async def head_blob(
         self, image_name: ImageName, digest: FormattedSHA256, **kwargs
-    ) -> Dict:
+    ) -> DockerRegistryClientAsyncHeadBlob:
         """
         Check a blob for existence.
 
@@ -827,7 +854,9 @@ class DockerRegistryClientAsync:
         client_session = await self._get_client_session()
         return await client_session.head(headers=headers, url=url, **kwargs)
 
-    async def head_manifest(self, image_name: ImageName, **kwargs) -> Dict:
+    async def head_manifest(
+        self, image_name: ImageName, **kwargs
+    ) -> DockerRegistryClientAsyncHeadManifest:
         """
         Check an image manifest for existence.
 
@@ -855,7 +884,7 @@ class DockerRegistryClientAsync:
         }
 
     async def _patch_blob_upload(
-        self, location: str, data: bytes, *, offset: int = None, **kwargs
+        self, location: str, data: Union[bytes, Any], *, offset: int = None, **kwargs
     ) -> ClientResponse:
         """
         Upload a chunk of data for the specified upload.
@@ -890,7 +919,7 @@ class DockerRegistryClientAsync:
 
     async def patch_blob_upload(
         self, location: str, data: bytes, *, offset: int = None, **kwargs
-    ) -> Dict:
+    ) -> DockerRegistryClientAsyncXBlobUpload:
         """
         Upload a chunk of data for the specified upload.
 
@@ -922,7 +951,7 @@ class DockerRegistryClientAsync:
 
     async def patch_blob_upload_from_disk(
         self, location: str, file, *, file_is_async: bool = True, **kwargs
-    ) -> Dict:
+    ) -> DockerRegistryClientAsyncPatchBlobUploadFromDisk:
         """
         Upload a chunk of data for the specified upload.
 
@@ -933,6 +962,7 @@ class DockerRegistryClientAsync:
 
         Returns:
             client_response: The underlying client response.
+            digest: The digest of the local content.
             docker_upload_uuid: Identifies the docker upload uuid for the current request.
             location:
                 The location of the upload. Clients should assume this changes after each request. Clients should use
@@ -940,14 +970,13 @@ class DockerRegistryClientAsync:
             range:
                 Range header indicating the progress of the upload.
         """
+        hashing_generator = HashingGenerator(file, file_is_async=file_is_async)
         client_response = await self._patch_blob_upload(
-            location,
-            chunk_from_disk(file, file_is_async),
-            raise_for_status=True,
-            **kwargs,
+            location, hashing_generator, raise_for_status=True, **kwargs,
         )
         return {
             "client_response": client_response,
+            "digest": hashing_generator.get_digest(),
             "docker_upload_uuid": client_response.headers["Docker-Upload-UUID"],
             "location": client_response.headers["Location"],
             "range": client_response.headers["Range"],
@@ -1009,7 +1038,7 @@ class DockerRegistryClientAsync:
         digest: FormattedSHA256 = None,
         source: ImageName = None,
         **kwargs,
-    ) -> Dict:
+    ) -> DockerRegistryClientAsyncXBlobUpload:
         """
         Initiate a resumable blob upload. If successful, an upload location will be provided to complete the upload.
         Optionally, if the digest parameter is present, the request body will be used to complete the upload in a single
@@ -1052,7 +1081,12 @@ class DockerRegistryClientAsync:
         }
 
     async def _put_blob_upload(
-        self, location: str, digest: FormattedSHA256, *, data: bytes = None, **kwargs
+        self,
+        location: str,
+        digest: FormattedSHA256,
+        *,
+        data: Union[bytes, Any] = None,
+        **kwargs,
     ) -> ClientResponse:
         """
         Complete the upload specified by uuid, optionally appending the body as the final chunk.
@@ -1086,7 +1120,7 @@ class DockerRegistryClientAsync:
 
     async def put_blob_upload(
         self, location: str, digest: FormattedSHA256, *, data: bytes = None, **kwargs
-    ) -> Dict:
+    ) -> DockerRegistryClientAsyncPutBlobUpload:
         """
         Complete the upload specified by uuid, optionally appending the body as the final chunk.
 
@@ -1121,14 +1155,16 @@ class DockerRegistryClientAsync:
         digest: FormattedSHA256,
         file,
         *,
+        check_digest: bool = True,
         file_is_async: bool = True,
         **kwargs,
-    ) -> Dict:
+    ) -> DockerRegistryClientAsyncPutBlobUpload:
         """
         Complete the upload specified by uuid, appending the body as the final chunk.
 
         Args:
             location: Valued of the previous location header from which to retrieve the UUID.
+            check_digest: If True, an exception will be raised if the local and uploaded digests are inconsistent.
             digest: Digest of the (total) blob.
             file: The file from which to retrieve the image manifest.
             file_is_async: If True, all file IO operations will be awaited.
@@ -1141,26 +1177,28 @@ class DockerRegistryClientAsync:
                 digest: The manifest digest returned by the server.
                 location: The canonical location of the blob for retrieval.
         """
+        hashing_generator = HashingGenerator(file, file_is_async=file_is_async)
         client_response = await self._put_blob_upload(
-            location,
-            digest,
-            data=chunk_from_disk(file, file_is_async),
-            raise_for_status=True,
-            **kwargs,
+            location, digest, data=hashing_generator, raise_for_status=True, **kwargs,
         )
+        digest = FormattedSHA256.parse(client_response.headers["Docker-Content-Digest"])
+        if check_digest:
+            must_be_equal(
+                hashing_generator.get_digest(),
+                digest,
+                "Remote and local digests are inconsistent",
+            )
         return {
             "client_response": client_response,
             # "content_range": client_response.headers["Content-Range"],  # Bad docs (code check: registry/handlers/blobupload.go:360)
-            "digest": FormattedSHA256.parse(
-                client_response.headers["Docker-Content-Digest"]
-            ),
+            "digest": digest,
             "location": client_response.headers["Location"],
         }
 
     async def _put_manifest(
         self,
         image_name: ImageName,
-        manifest: bytes,
+        manifest: Union[bytes, Any],
         *,
         media_type: str = MediaTypes.APPLICATION_JSON,
         **kwargs,
@@ -1200,7 +1238,7 @@ class DockerRegistryClientAsync:
 
     async def put_manifest(
         self, image_name: ImageName, manifest: Manifest, **kwargs
-    ) -> Dict:
+    ) -> DockerRegistryClientAsyncPutManifest:
         """
         Put the manifest identified by name and reference where reference can be a tag or digest.
 
@@ -1235,15 +1273,17 @@ class DockerRegistryClientAsync:
         image_name: ImageName,
         file,
         *,
+        check_digest: bool = True,
         file_is_async: bool = True,
         media_type: str = MediaTypes.APPLICATION_JSON,
         **kwargs,
-    ) -> Dict:
+    ) -> DockerRegistryClientAsyncPutManifest:
         """
         Put the manifest identified by name and reference where reference can be a tag or digest.
 
         Args:
             image_name: The image name.
+            check_digest: If True, an exception will be raised if the local and uploaded digests are inconsistent.
             file: The file from which to retrieve the image manifest.
             file_is_async: If True, all file IO operations will be awaited.
             media_type: The media type of the image manifest.
@@ -1255,16 +1295,19 @@ class DockerRegistryClientAsync:
                 client_response: The underlying client response.
                 digest: The manifest digest returned by the server.
         """
+        hashing_generator = HashingGenerator(file, file_is_async=file_is_async)
         client_response = await self._put_manifest(
             image_name,
-            chunk_from_disk(file, file_is_async),
+            hashing_generator,
             media_type=media_type,
             raise_for_status=True,
             **kwargs,
         )
-        return {
-            "client_response": client_response,
-            "digest": FormattedSHA256.parse(
-                client_response.headers["Docker-Content-Digest"]
-            ),
-        }
+        digest = FormattedSHA256.parse(client_response.headers["Docker-Content-Digest"])
+        if check_digest:
+            must_be_equal(
+                hashing_generator.get_digest(),
+                digest,
+                "Remote and local digests are inconsistent",
+            )
+        return {"client_response": client_response, "digest": digest}

@@ -4,10 +4,11 @@
 
 import os
 
-from typing import Dict, Optional
+from typing import Optional
 
 from .formattedsha256 import FormattedSHA256
 from .specs import Indices
+from .typing import ImageNamePareString
 
 
 class ImageName:
@@ -54,7 +55,7 @@ class ImageName:
         return result
 
     @staticmethod
-    def _parse_string(string: str) -> Dict:
+    def _parse_string(string: str) -> ImageNamePareString:
         """
         Parses the endpoint, image, and tag from a given string.
 
@@ -91,7 +92,7 @@ class ImageName:
             result["tag"] = pieces[0]
             result["digest"] = FormattedSHA256(parts[2])
         else:
-            raise RuntimeError(f"Unable to parse string: {string}")
+            raise ValueError(f"Unable to parse string: {string}")
 
         if len(segments) == 1:
             # image[:tag]
@@ -122,7 +123,7 @@ class ImageName:
         return result
 
     @staticmethod
-    def parse(image_name: str):
+    def parse(image_name: str) -> "ImageName":
         """
         Initializes an ImageName from a given image name string.
 

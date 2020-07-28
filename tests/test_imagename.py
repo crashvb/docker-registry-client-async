@@ -4,14 +4,24 @@
 
 """ImageName tests."""
 
-from typing import Dict
+from typing import Generator, TypedDict
 
 import pytest
 
 from docker_registry_client_async import FormattedSHA256, ImageName
 
 
-def get_test_data() -> Dict:
+class TypingGetTestData(TypedDict):
+    # pylint: disable=missing-class-docstring
+    digest: FormattedSHA256
+    endpoint: str
+    image: str
+    object: ImageName
+    string: str
+    tag: str
+
+
+def get_test_data() -> Generator[TypingGetTestData, None, None]:
     """Dynamically initializes test data."""
     for endpoint in ["endpoint.io", "endpoint:port", None]:
         for image in ["image", "ns0/image", "ns0/ns1/image", "ns0/ns1/ns2/image"]:
@@ -36,12 +46,12 @@ def get_test_data() -> Dict:
 
 
 @pytest.fixture(params=get_test_data())
-def image_data(request) -> Dict:
+def image_data(request) -> TypingGetTestData:
     """Provides ImageName instance and associated data."""
     return request.param
 
 
-def test___init__(image_data: Dict):
+def test___init__(image_data: TypingGetTestData):
     """Test that image name can be instantiated."""
     assert ImageName(
         digest=image_data["digest"],
@@ -51,7 +61,7 @@ def test___init__(image_data: Dict):
     )
 
 
-def test___str__(image_data: Dict):
+def test___str__(image_data: TypingGetTestData):
     """Test __str__ pass-through for different variants."""
     string = str(image_data["object"])
     assert image_data["image"] in string
@@ -72,7 +82,7 @@ def test___str__(image_data: Dict):
     assert "None" not in string
 
 
-def test_parse_string(image_data: Dict):
+def test_parse_string(image_data: TypingGetTestData):
     """Test string parsing for complex image names."""
     result = ImageName._parse_string(image_data["string"])
     assert result["digest"] == image_data["digest"]
@@ -88,7 +98,7 @@ def test_parse_string(image_data: Dict):
         assert ImageName.DEFAULT_TAG not in str(result["tag"])
 
 
-def test_parse(image_data: Dict):
+def test_parse(image_data: TypingGetTestData):
     """Test initialization via parsed strings."""
     image_name = ImageName.parse(image_data["string"])
     assert image_name.digest == image_data["digest"]
@@ -103,33 +113,37 @@ def test_parse(image_data: Dict):
     if image_data["tag"]:
         assert ImageName.DEFAULT_TAG not in image_name.tag
 
+    with pytest.raises(ValueError) as exception:
+        ImageName.parse("a:b:c:d")
+    assert str(exception.value).startswith("Unable to parse string:")
 
-def test_digest(image_data: Dict):
+
+def test_digest(image_data: TypingGetTestData):
     """Tests digest retrieval."""
     assert image_data["object"].digest == image_data["digest"]
 
 
-def test_endpoint(image_data: Dict):
+def test_endpoint(image_data: TypingGetTestData):
     """Tests endpoint retrieval."""
     assert image_data["object"].endpoint == image_data["endpoint"]
 
 
-def test_image(image_data: Dict):
+def test_image(image_data: TypingGetTestData):
     """Tests image retrieval."""
     assert image_data["object"].image == image_data["image"]
 
 
-def test_tag(image_data: Dict):
+def test_tag(image_data: TypingGetTestData):
     """Tests tag retrieval."""
     assert image_data["object"].tag == image_data["tag"]
 
 
-def test_resolve_digest(image_data: Dict):
+def test_resolve_digest(image_data: TypingGetTestData):
     """Test digest resolution."""
     assert image_data["object"].resolve_digest() == image_data["digest"]
 
 
-def test_resolve_endpoint(image_data: Dict):
+def test_resolve_endpoint(image_data: TypingGetTestData):
     """Test endpoint resolution."""
     expected = (
         image_data["endpoint"] if image_data["endpoint"] else ImageName.DEFAULT_ENDPOINT
@@ -137,7 +151,7 @@ def test_resolve_endpoint(image_data: Dict):
     assert image_data["object"].resolve_endpoint() == expected
 
 
-def test_resolve_image(image_data: Dict):
+def test_resolve_image(image_data: TypingGetTestData):
     """Test image resolution."""
     expected = (
         image_data["image"]
@@ -147,12 +161,12 @@ def test_resolve_image(image_data: Dict):
     assert image_data["object"].resolve_image() == expected
 
 
-def test_resolve_name(image_data: Dict):
+def test_resolve_name(image_data: TypingGetTestData):
     """Test name resolution."""
     assert image_data["object"].resolve_name() == str(image_data["object"])
 
 
-def test_resolve_tag(image_data: Dict):
+def test_resolve_tag(image_data: TypingGetTestData):
     """Test tag resolution."""
     expected = image_data["tag"] if image_data["tag"] else ImageName.DEFAULT_TAG
     assert image_data["object"].resolve_tag() == expected
