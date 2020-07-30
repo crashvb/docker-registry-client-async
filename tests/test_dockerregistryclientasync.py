@@ -8,7 +8,6 @@ import hashlib
 import json
 import logging
 
-from copy import deepcopy
 from http import HTTPStatus
 from itertools import chain
 from pathlib import Path
@@ -1484,7 +1483,7 @@ async def test__post_blob_mount(
     layer = manifest_data["manifest_json"]["layers"][0]
     layer_digest = FormattedSHA256.parse(layer["digest"])
 
-    destination = deepcopy(manifest_data["image_name"])
+    destination = manifest_data["image_name"].clone()
     destination.image += "copy"
 
     LOGGER.debug(
