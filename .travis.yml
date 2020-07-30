@@ -1,8 +1,10 @@
-language: python
-python:
-- "3.8.3"
+env:
+- TRAVIS=true
 install:
 - python -m pip install --upgrade pip
 - python -m pip install --editable .[dev]
+language: python
+python:
+- "3.8.3"
 script:
 - make test

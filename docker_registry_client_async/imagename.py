@@ -4,6 +4,7 @@
 
 import os
 
+from copy import deepcopy
 from typing import Optional
 
 from .formattedsha256 import FormattedSHA256
@@ -53,6 +54,14 @@ class ImageName:
             result = f"{self.endpoint}/{result}"
 
         return result
+
+    def clone(self) -> "ImageName":
+        """
+        Initializes an returns a copy of this instance.
+
+        Returns: A copy of this instance.
+        """
+        return deepcopy(self)
 
     @staticmethod
     def _parse_string(string: str) -> ImageNamePareString:

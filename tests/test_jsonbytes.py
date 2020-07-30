@@ -47,6 +47,17 @@ def test___str__(json_bytes_data: TypingJsonBytesData):
     assert "None" not in string
 
 
+def test_clone(json_bytes_data: TypingJsonBytesData):
+    """Test object cloning."""
+    clone = json_bytes_data["json_bytes"].clone()
+    assert clone != json_bytes_data["json_bytes"]
+    assert bytes(clone) == json_bytes_data["bytes"]
+    assert str(clone) == str(json_bytes_data["json_bytes"])
+    clone._set_json({})
+    assert bytes(clone) != json_bytes_data["json_bytes"]
+    assert str(clone) != str(json_bytes_data["json_bytes"])
+
+
 def test_get_bytes(json_bytes_data: TypingJsonBytesData):
     """Test raw image json_bytes retrieval."""
     assert json_bytes_data["json_bytes"].get_bytes() == json_bytes_data["bytes"]

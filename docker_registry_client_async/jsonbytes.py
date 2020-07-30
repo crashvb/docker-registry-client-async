@@ -52,6 +52,14 @@ class JsonBytes:
         self.json = _json
         self.bytes = canonicaljson.encode_canonical_json(self.json)
 
+    def clone(self) -> "JsonBytes":
+        """
+        Initializes an returns a copy of this instance.
+
+        Returns: A copy of this instance.
+        """
+        return deepcopy(self)
+
     def get_bytes(self) -> bytes:
         """
         Retrieves the raw image bytes.

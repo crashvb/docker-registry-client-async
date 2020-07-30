@@ -82,6 +82,15 @@ def test___str__(image_data: TypingGetTestData):
     assert "None" not in string
 
 
+def test_clone(image_data: TypingGetTestData):
+    """Test object cloning."""
+    clone = image_data["object"].clone()
+    assert clone != image_data["object"]
+    assert str(clone) == str(image_data["object"])
+    clone.endpoint = "gemini.man"
+    assert str(clone) != str(image_data["object"])
+
+
 def test_parse_string(image_data: TypingGetTestData):
     """Test string parsing for complex image names."""
     result = ImageName._parse_string(image_data["string"])
