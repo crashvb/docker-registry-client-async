@@ -52,7 +52,7 @@ class JsonBytes:
         self.json = _json
         self.bytes = canonicaljson.encode_canonical_json(self.json)
 
-    def clone(self) -> "JsonBytes":
+    def clone(self):
         """
         Initializes an returns a copy of this instance.
 
