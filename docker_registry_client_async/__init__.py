@@ -15,4 +15,4 @@ from .specs import (
     OCIMediaTypes,
 )
 
-__version__ = "0.1.1"
+__version__ = "0.1.2.dev0"
