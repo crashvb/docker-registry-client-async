@@ -1,5 +1,7 @@
 #!/usr/bin/env python
 
+# pylint: disable=too-many-lines,too-many-public-methods
+
 """Asynchronous Docker Registry Client."""
 
 import json
@@ -9,13 +11,21 @@ import re
 
 from http import HTTPStatus
 from pathlib import Path
-from typing import Any, Dict, Union
+from ssl import SSLContext
+from typing import Any, List, Union
 from urllib.parse import urlparse
 
 import aiofiles
 import www_authenticate
 
-from aiohttp import AsyncResolver, ClientResponse, ClientSession, TCPConnector
+from aiohttp import (
+    AsyncResolver,
+    ClientResponse,
+    ClientSession,
+    Fingerprint,
+    TCPConnector,
+)
+from aiohttp.typedefs import LooseHeaders
 
 from .formattedsha256 import FormattedSHA256
 from .hashinggenerator import HashingGenerator
@@ -58,7 +68,11 @@ class DockerRegistryClientAsync:
     DEFAULT_PROTOCOL = os.environ.get("DRCA_DEFAULT_PROTOCOL", "https")
 
     def __init__(
-        self, *, credentials_store: Path = None, token_based_endpoints: list = None
+        self,
+        *,
+        credentials_store: Path = None,
+        ssl: Union[None, bool, Fingerprint, SSLContext] = None,
+        token_based_endpoints: List[str] = None,
     ):
         """
         Args:
@@ -81,6 +95,7 @@ class DockerRegistryClientAsync:
         self.client_session = None
         self.credentials_store = credentials_store
         self.credentials = None
+        self.ssl = ssl
         # Endpoint -> scope -> token
         self.tokens = {}
         self.token_based_endpoints = token_based_endpoints
@@ -90,6 +105,19 @@ class DockerRegistryClientAsync:
 
     async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
         await self.close()
+
+    async def add_credentials(self, endpoint: str, credentials: str):
+        """
+        Assigns registry credentials in memory for a given endpoint.
+
+        Args:
+            endpoint: Registry endpoint for which to assign the credentials.
+            credentials: The credentials to be assigned
+        """
+        # Don't shadow self.credentials_store by flagging that credentials have been loaded
+        if self.credentials is None:
+            await self._load_credentials()
+        self.credentials[endpoint] = {"auth": credentials}
 
     async def close(self):
         """Gracefully closes this instance."""
@@ -152,13 +180,13 @@ class DockerRegistryClientAsync:
         """
         if not self.client_session:
             self.client_session = ClientSession(
-                connector=TCPConnector(resolver=AsyncResolver())
+                connector=TCPConnector(resolver=AsyncResolver(), ssl=self.ssl)
             )
         return self.client_session
 
     async def _get_credentials(self, endpoint: str) -> str:
         """
-        Retrieves the registry credentials from the docker registry credentials store for a given endpoint
+        Retrieves the registry credentials for a given endpoint
 
         Args:
             endpoint: Registry endpoint for which to retrieve the credentials.
@@ -168,16 +196,8 @@ class DockerRegistryClientAsync:
         """
         result = None
 
-        if self.credentials is None and self.credentials_store:
-            LOGGER.debug("Using credentials store: %s", self.credentials_store)
-
-            # TODO: Add support for secure providers:
-            #       https://docs.docker.com/engine/reference/commandline/login/#credentials-store
-
-            self.credentials = {}
-            if self.credentials_store.is_file():
-                async with aiofiles.open(self.credentials_store, mode="rb") as file:
-                    self.credentials = json.loads(await file.read()).get("auths", {})
+        if self.credentials is None:
+            await self._load_credentials()
 
         for endpoint_auth in [
             u for u in self.credentials if endpoint in (u, urlparse(u).netloc)
@@ -189,8 +209,8 @@ class DockerRegistryClientAsync:
         return result
 
     async def _get_request_headers(
-        self, image_name: ImageName, headers: Dict = None, *, scope=None
-    ) -> Dict:
+        self, image_name: ImageName, headers: LooseHeaders = None, *, scope=None
+    ) -> LooseHeaders:
         """
         Generates request headers that contain registry credentials for a given registry endpoint.
 
@@ -241,6 +261,22 @@ class DockerRegistryClientAsync:
             "image"
         )
         return ImageName(image, endpoint=parts.netloc)
+
+    async def _load_credentials(self):
+        """Retrieves the registry credentials from the docker registry credentials store for a given endpoint."""
+        if self.credentials is None:
+            self.credentials = {}
+
+        if self.credentials_store:
+            LOGGER.debug("Loading credentials from store: %s", self.credentials_store)
+
+            # TODO: Add support for secure providers:
+            #       https://docs.docker.com/engine/reference/commandline/login/#credentials-store
+            if self.credentials_store.is_file():
+                async with aiofiles.open(self.credentials_store, mode="rb") as file:
+                    credentials = json.loads(await file.read()).get("auths", {})
+                for endpoint in credentials:
+                    self.credentials[endpoint] = credentials[endpoint]
 
     # Docker Registry V2 API methods
 
@@ -360,7 +396,10 @@ class DockerRegistryClientAsync:
                 image_name.resolve_image()
             ),
         )
-        url = f"{protocol}://{image_name.resolve_endpoint()}/v2/{image_name.resolve_image()}/manifests/{image_name.resolve_digest()}"
+        url = (
+            f"{protocol}://{image_name.resolve_endpoint()}/v2/{image_name.resolve_image()}/manifests/"
+            f"{image_name.resolve_digest()}"
+        )
         client_session = await self._get_client_session()
         return await client_session.delete(headers=headers, url=url, **kwargs)
 
@@ -605,7 +644,10 @@ class DockerRegistryClientAsync:
         elif image_name.tag:
             identifier = image_name.resolve_tag()
         if accept is None:
-            accept = f"{DockerMediaTypes.DISTRIBUTION_MANIFEST_V2};q=1.0,{OCIMediaTypes.IMAGE_MANIFEST_V1};q=0.5,{DockerMediaTypes.DISTRIBUTION_MANIFEST_V1};q=0.1"
+            accept = (
+                f"{DockerMediaTypes.DISTRIBUTION_MANIFEST_V2};q=1.0,{OCIMediaTypes.IMAGE_MANIFEST_V1};q=0.5,"
+                f"{DockerMediaTypes.DISTRIBUTION_MANIFEST_V1};q=0.1"
+            )
         protocol = kwargs.pop("protocol", DockerRegistryClientAsync.DEFAULT_PROTOCOL)
 
         headers = await self._get_request_headers(
@@ -1020,8 +1062,9 @@ class DockerRegistryClientAsync:
         )
         params = {}
         if digest and source:
-            # Special Case: 'library/' image prefix does not work with mounting
-            params["from"] = re.sub(r"^library/", "", source.resolve_image())
+            # TODO: 'library/' image prefix does not work with mounting (on DockerHub) ...
+            # params["from"] = re.sub(r"^library/", "", source.resolve_image())
+            params["from"] = source.resolve_image()
             params["mount"] = digest
         elif digest:
             params["digest"] = digest
@@ -1075,7 +1118,9 @@ class DockerRegistryClientAsync:
         )
         return {
             "client_response": client_response,
-            "docker_upload_uuid": client_response.headers["Docker-Upload-UUID"],
+            "docker_upload_uuid": client_response.headers.get(
+                "Docker-Upload-UUID", None
+            ),
             "location": client_response.headers["Location"],
             "range": client_response.headers["Range"],
         }
@@ -1142,7 +1187,8 @@ class DockerRegistryClientAsync:
         )
         return {
             "client_response": client_response,
-            # "content_range": client_response.headers["Content-Range"],  # Bad docs (code check: registry/handlers/blobupload.go:360)
+            # Bad docs (code check: registry/handlers/blobupload.go:360)
+            # "content_range": client_response.headers["Content-Range"],
             "digest": FormattedSHA256.parse(
                 client_response.headers["Docker-Content-Digest"]
             ),
@@ -1190,7 +1236,8 @@ class DockerRegistryClientAsync:
             )
         return {
             "client_response": client_response,
-            # "content_range": client_response.headers["Content-Range"],  # Bad docs (code check: registry/handlers/blobupload.go:360)
+            # Bad docs (code check: registry/handlers/blobupload.go:360)
+            # "content_range": client_response.headers["Content-Range"],
             "digest": digest,
             "location": client_response.headers["Location"],
         }

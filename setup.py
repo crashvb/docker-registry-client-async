@@ -21,7 +21,7 @@ setup(
     author="Richard Davis",
     author_email="crashvb@gmail.com",
     classifiers=[
-        "Development Status :: 4 - Beta",
+        "Development Status :: 5 - Production/Stable",
         "Intended Audience :: Developers",
         "License :: OSI Approved :: Apache Software License",
         "Programming Language :: Python :: 3",
@@ -31,12 +31,10 @@ setup(
     extras_require={
         "dev": [
             "black",
-            "docker",
-            "docker-compose",
-            "lovely-pytest-docker",
             "pylint",
             "pytest",
             "pytest-asyncio",
+            "pytest-docker-registry-fixtures",
             "twine",
             "wheel",
         ],
@@ -57,13 +55,7 @@ setup(
     name="docker_registry_client_async",
     packages=find_packages(),
     setup_requires=["pytest-runner"],
-    tests_require=[
-        "docker",
-        "docker-compose",
-        "lovely-pytest-docker",
-        "pytest",
-        "pytest-asyncio",
-    ],
+    tests_require=["pytest", "pytest-asyncio", "pytest-docker-registry-fixtures"],
     test_suite="tests",
     url="https://pypi.org/project/docker-registry-client-async/",
     version=find_version("docker_registry_client_async", "__init__.py"),

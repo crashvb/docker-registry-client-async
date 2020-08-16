@@ -8,7 +8,7 @@ import pytest
 
 
 def pytest_addoption(parser):
-    """pytest addoption."""
+    """pytest add option."""
     parser.addoption(
         "--allow-online",
         action="store_true",

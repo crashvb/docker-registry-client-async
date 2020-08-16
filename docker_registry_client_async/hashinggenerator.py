@@ -38,7 +38,7 @@ class HashingGenerator:
         await be_kind_rewind(self.file, file_is_async=self.file_is_async)
 
     def get_digest(self) -> FormattedSHA256:
-        """Retrives the digest value of the read data."""
+        """Retrieves the digest value of the read data."""
         return FormattedSHA256(self.hasher.hexdigest())
 
     def get_size(self) -> int:
