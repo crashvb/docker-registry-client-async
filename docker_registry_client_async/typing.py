@@ -17,7 +17,7 @@ class _AioHttpClientResponse(TypedDict):
 
 
 class _DockerContentDigest(TypedDict):
-    digest: FormattedSHA256
+    digest: Union[FormattedSHA256, None]
 
 
 class DockerRegistryClientAsyncResult(_AioHttpClientResponse):
@@ -58,7 +58,7 @@ class DockerRegistryClientAsyncHeadManifest(
 
 
 class DockerRegistryClientAsyncXBlobUpload(_AioHttpClientResponse):
-    docker_upload_uuid: str
+    docker_upload_uuid: Union[str, None]
     location: str
     range: str
 

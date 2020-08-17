@@ -16,7 +16,7 @@ class Manifest(JsonBytes):
     Abstract class to retrieve and manipulate image manifests.
     """
 
-    def __init__(self, manifest: bytes, *, media_type: str = None, **kwargs):
+    def __init__(self, manifest: bytes, *, media_type: str = None):
         """
         Args:
             manifest: The raw image manifest value.
@@ -24,7 +24,7 @@ class Manifest(JsonBytes):
         """
         self.media_type = None
         self._set_media_type(media_type)
-        super().__init__(manifest, **kwargs)
+        super().__init__(manifest)
 
     def _detect_media_type(self):
         """

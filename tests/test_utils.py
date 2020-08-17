@@ -148,11 +148,11 @@ async def test_chunk_file(client_session: ClientSession, tmp_path: Path):
 def test_must_be_equal(expected: Any, actual: Any, result: bool):
     """Test that equality can be determined."""
     if not result:
-        with pytest.raises(RuntimeError) as excinfo:
+        with pytest.raises(RuntimeError) as exc_info:
             must_be_equal(expected, actual)
-        assert str(expected) in str(excinfo.value)
-        assert str(actual) in str(excinfo.value)
-        assert "does not match" in str(excinfo.value)
+        assert str(expected) in str(exc_info.value)
+        assert str(actual) in str(exc_info.value)
+        assert "does not match" in str(exc_info.value)
     else:
         must_be_equal(expected, actual)
 
@@ -160,8 +160,8 @@ def test_must_be_equal(expected: Any, actual: Any, result: bool):
 def test_must_be_equal_msg(expected: Any = "bar", actual: Any = "foo"):
     """Test that an custom error message can be used."""
     message = "custom message here"
-    with pytest.raises(RuntimeError) as excinfo:
+    with pytest.raises(RuntimeError) as exc_info:
         must_be_equal(expected, actual, message)
-    assert str(expected) in str(excinfo.value)
-    assert str(actual) in str(excinfo.value)
-    assert message in str(excinfo.value)
+    assert str(expected) in str(exc_info.value)
+    assert str(actual) in str(exc_info.value)
+    assert message in str(exc_info.value)

@@ -53,7 +53,7 @@ def test_clone(json_bytes_data: TypingJsonBytesData):
     assert clone != json_bytes_data["json_bytes"]
     assert bytes(clone) == json_bytes_data["bytes"]
     assert str(clone) == str(json_bytes_data["json_bytes"])
-    clone._set_json({})
+    clone._set_json({})  # pylint: disable=protected-access
     assert bytes(clone) != json_bytes_data["json_bytes"]
     assert str(clone) != str(json_bytes_data["json_bytes"])
 

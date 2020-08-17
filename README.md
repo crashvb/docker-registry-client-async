@@ -38,7 +38,7 @@ if __name__ == "__main__":
 * Tested with python 3.8
 
 ## Installation
-### From [pypi.org](https://pypi.org/project/docker_registry_client_async/)
+### From [pypi.org](https://pypi.org/project/docker-registry-client-async/)
 
 ```
 $ pip install docker_registry_client_async
