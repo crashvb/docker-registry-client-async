@@ -11,7 +11,7 @@ import logging
 
 from http import HTTPStatus
 from pathlib import Path
-from typing import Any, cast, Dict, Generator, Optional, TypedDict
+from typing import Any, cast, Dict, Generator, TypedDict
 
 import aiofiles
 import pytest
@@ -42,15 +42,6 @@ pytestmark = [
     #         Compensate by specifying the namespace explicitly here, and it get_test_data().
     #       * Order of replication should be manifests, manifest lists, then tags.
     pytest.mark.push_image(
-        # "library/python:3.7.2-slim-stretch",
-        "library/python@sha256:0005ba40bf87e486d7061ca0112123270e4a6088b5071223c8d467db3dbba908",
-        "library/python@sha256:09001905f918a977427cc6931a1cac84a8645b1ac2011fd3f40f625daf9a7fb1",
-        "library/python@sha256:2d127b64fbb7a58ee8eb2c321f1bbd14548ab3191009cca7845b81155c9067bf",
-        "library/python@sha256:59768566a74724d0feeca46cf4f21fd73850b56b8cbbc9dc46ef2f0e179064c5",
-        "library/python@sha256:7505b822f9430bb8887037085e8b40d88ee02a424c075137f7d5b148a9e7131d",
-        "library/python@sha256:de66a6835cfa722611fad3111edad211a66b489fd0a74db67487d860001fdc0c",
-        "library/python@sha256:7d925740cfb767f08105b764b8126e29cd3bb6654a759aad09929206644c7bac",
-        "library/python@sha256:78320634b63efb52f591a7d69d5a50076ce76e7b72c4b45c1e4ddad90c39870a",  # ManifestList
         # "library/busybox:1.30.1",
         "library/busybox@sha256:4fe8827f51a5e11bb83afa8227cbccb402df840d32c6b633b7ad079bc8144100",
         "library/busybox@sha256:abc043b5132f825e44eefffc35535b1f24bd3f1bb60b11943863563a46795fdc",
@@ -61,6 +52,15 @@ pytestmark = [
         "library/busybox@sha256:a09f03056efb5d3facb5077a9e58e83e9bba74ad4d343b2afa92c70b5ae01e2b",
         "library/busybox@sha256:0b671b6a323d86aa6165883f698b557ca257c3a3ffa1e3152ffb6467e7ac11b3",
         "library/busybox@sha256:4b6ad3a68d34da29bf7c8ccb5d355ba8b4babcad1f99798204e7abb43e54ee3d",  # ManifestList
+        # "library/python:3.7.2-slim-stretch",
+        "library/python@sha256:0005ba40bf87e486d7061ca0112123270e4a6088b5071223c8d467db3dbba908",
+        "library/python@sha256:09001905f918a977427cc6931a1cac84a8645b1ac2011fd3f40f625daf9a7fb1",
+        "library/python@sha256:2d127b64fbb7a58ee8eb2c321f1bbd14548ab3191009cca7845b81155c9067bf",
+        "library/python@sha256:59768566a74724d0feeca46cf4f21fd73850b56b8cbbc9dc46ef2f0e179064c5",
+        "library/python@sha256:7505b822f9430bb8887037085e8b40d88ee02a424c075137f7d5b148a9e7131d",
+        "library/python@sha256:de66a6835cfa722611fad3111edad211a66b489fd0a74db67487d860001fdc0c",
+        "library/python@sha256:7d925740cfb767f08105b764b8126e29cd3bb6654a759aad09929206644c7bac",
+        "library/python@sha256:78320634b63efb52f591a7d69d5a50076ce76e7b72c4b45c1e4ddad90c39870a",  # ManifestList
     ),
 ]
 
@@ -78,8 +78,6 @@ class TypingGetTestDataLocal(TypedDict):
     image: str
     tag: str
     digests: Dict[str, FormattedSHA256]
-    original_endpoint: Optional[str]
-    protocol: Optional[str]
 
 
 class TypingGetManifest(TypedDict):
@@ -428,7 +426,7 @@ async def test__delete_blob(
     manifest_data = await get_manifest_json(
         docker_registry_client_async, known_good_image
     )
-    manifest_data["image_name"].image += "_modified"
+    manifest_data["image_name"].image += __name__
 
     LOGGER.debug("Initiating blob upload: %s ...", manifest_data["image_name"])
     response = await docker_registry_client_async.post_blob(manifest_data["image_name"])
@@ -460,7 +458,7 @@ async def test_delete_blob(
     manifest_data = await get_manifest_json(
         docker_registry_client_async, known_good_image
     )
-    manifest_data["image_name"].image += "_modified"
+    manifest_data["image_name"].image += __name__
 
     LOGGER.debug("Initiating blob upload: %s ...", manifest_data["image_name"])
     response = await docker_registry_client_async.post_blob(manifest_data["image_name"])
@@ -489,7 +487,7 @@ async def test__delete_blob_upload(
     manifest_data = await get_manifest_json(
         docker_registry_client_async, known_good_image
     )
-    manifest_data["image_name"].image += "_modified"
+    manifest_data["image_name"].image += __name__
 
     LOGGER.debug("Initiating blob upload: %s ...", manifest_data["image_name"])
     response = await docker_registry_client_async.post_blob(manifest_data["image_name"])
@@ -517,7 +515,7 @@ async def test_delete_blob_upload(
     manifest_data = await get_manifest_json(
         docker_registry_client_async, known_good_image
     )
-    manifest_data["image_name"].image += "_modified"
+    manifest_data["image_name"].image += __name__
 
     LOGGER.debug("Initiating blob upload: %s ...", manifest_data["image_name"])
     response = await docker_registry_client_async.post_blob(manifest_data["image_name"])
@@ -554,7 +552,7 @@ async def test__delete_manifest(
     image_name = manifest_data["image_name"]
     image_name.digest = manifest.get_digest()
     if image_name.tag:
-        image_name.tag += "_modified"
+        image_name.tag += __name__
     LOGGER.debug("Storing manifest: %s (%s) ...", image_name, manifest.get_digest())
     response = await docker_registry_client_async.put_manifest(image_name, manifest)
     assert response["digest"] == manifest.get_digest()
@@ -587,7 +585,7 @@ async def test_delete_manifest(
     image_name = manifest_data["image_name"]
     image_name.digest = manifest.get_digest()
     if image_name.tag:
-        image_name.tag += "_modified"
+        image_name.tag += __name__
     LOGGER.debug("Storing manifest: %s (%s) ...", image_name, manifest.get_digest())
     response = await docker_registry_client_async.put_manifest(image_name, manifest)
     assert response["digest"] == manifest.get_digest()
@@ -772,7 +770,7 @@ async def test__get_blob_upload(
     manifest_data = await get_manifest_json(
         docker_registry_client_async, known_good_image
     )
-    manifest_data["image_name"].image += "_modified"
+    manifest_data["image_name"].image += __name__
 
     LOGGER.debug("Initiating blob upload: %s ...", manifest_data["image_name"])
     response = await docker_registry_client_async.post_blob(manifest_data["image_name"])
@@ -803,7 +801,7 @@ async def test_get_blob_upload(
     manifest_data = await get_manifest_json(
         docker_registry_client_async, known_good_image
     )
-    manifest_data["image_name"].image += "_modified"
+    manifest_data["image_name"].image += __name__
 
     LOGGER.debug("Initiating blob upload: %s ...", manifest_data["image_name"])
     response = await docker_registry_client_async.post_blob(manifest_data["image_name"])
@@ -1186,7 +1184,7 @@ async def test__patch_blob_upload_chunked(
     manifest_data = await get_manifest_json(
         docker_registry_client_async, known_good_image
     )
-    manifest_data["image_name"].image += "_modified"
+    manifest_data["image_name"].image += __name__
 
     LOGGER.debug("Initiating blob upload: %s ...", manifest_data["image_name"])
     response = await docker_registry_client_async.post_blob(manifest_data["image_name"])
@@ -1226,7 +1224,7 @@ async def test__patch_blob_upload_stream(
     manifest_data = await get_manifest_json(
         docker_registry_client_async, known_good_image
     )
-    manifest_data["image_name"].image += "_modified"
+    manifest_data["image_name"].image += __name__
 
     LOGGER.debug("Initiating blob upload: %s ...", manifest_data["image_name"])
     response = await docker_registry_client_async.post_blob(manifest_data["image_name"])
@@ -1259,7 +1257,7 @@ async def test_patch_blob_upload_stream(
     manifest_data = await get_manifest_json(
         docker_registry_client_async, known_good_image
     )
-    manifest_data["image_name"].image += "_modified"
+    manifest_data["image_name"].image += __name__
 
     LOGGER.debug("Initiating blob upload: %s ...", manifest_data["image_name"])
     response = await docker_registry_client_async.post_blob(manifest_data["image_name"])
@@ -1306,7 +1304,7 @@ async def test_patch_blob_upload_from_disk_async(
     assert all(x in response for x in ["client_response", "digest", "size"])
     digest = response["digest"]
 
-    manifest_data["image_name"].image += "_modified"
+    manifest_data["image_name"].image += __name__
 
     LOGGER.debug("Initiating blob upload: %s ...", manifest_data["image_name"])
     response = await docker_registry_client_async.post_blob(manifest_data["image_name"])
@@ -1358,7 +1356,7 @@ async def test_patch_blob_upload_from_disk_sync(
     assert all(x in response for x in ["client_response", "digest", "size"])
     digest = response["digest"]
 
-    manifest_data["image_name"].image += "_modified"
+    manifest_data["image_name"].image += __name__
 
     LOGGER.debug("Initiating blob upload: %s ...", manifest_data["image_name"])
     response = await docker_registry_client_async.post_blob(manifest_data["image_name"])
@@ -1389,7 +1387,7 @@ async def test__post_blob_monolithic(
     manifest_data = await get_manifest_json(
         docker_registry_client_async, known_good_image
     )
-    manifest_data["image_name"].image += "_modified"
+    manifest_data["image_name"].image += __name__
 
     LOGGER.debug(
         "Initiating monolithic blob upload: %s ...", manifest_data["image_name"]
@@ -1416,7 +1414,7 @@ async def test__post_blob_resumable(
     manifest_data = await get_manifest_json(
         docker_registry_client_async, known_good_image
     )
-    manifest_data["image_name"].image += "_modified"
+    manifest_data["image_name"].image += __name__
 
     LOGGER.debug(
         "Initiating resumable blob upload: %s ...", manifest_data["image_name"]
@@ -1446,7 +1444,7 @@ async def test__post_blob_mount(
     layer_digest = FormattedSHA256.parse(layer["digest"])
 
     destination = manifest_data["image_name"].clone()
-    destination.image += "_copy"
+    destination.image += __name__
 
     LOGGER.debug(
         "Initiating blob mount: %s/%s -> %s ...",
@@ -1478,7 +1476,7 @@ async def test_post_blob(
     manifest_data = await get_manifest_json(
         docker_registry_client_async, known_good_image
     )
-    manifest_data["image_name"].image += "_modified"
+    manifest_data["image_name"].image += __name__
 
     LOGGER.debug("Initiating blob upload: %s ...", manifest_data["image_name"])
     response = await docker_registry_client_async.post_blob(manifest_data["image_name"])
@@ -1498,7 +1496,7 @@ async def test__put_blob_upload(
     manifest_data = await get_manifest_json(
         docker_registry_client_async, known_good_image
     )
-    manifest_data["image_name"].image += "_modified"
+    manifest_data["image_name"].image += __name__
 
     LOGGER.debug("Initiating blob upload: %s ...", manifest_data["image_name"])
     response = await docker_registry_client_async.post_blob(manifest_data["image_name"])
@@ -1538,7 +1536,7 @@ async def test__put_blob_upload_monolithic_data_in_patch(
     manifest_data = await get_manifest_json(
         docker_registry_client_async, known_good_image
     )
-    manifest_data["image_name"].image += "_modified"
+    manifest_data["image_name"].image += __name__
 
     LOGGER.debug("Initiating blob upload: %s ...", manifest_data["image_name"])
     response = await docker_registry_client_async.post_blob(manifest_data["image_name"])
@@ -1586,7 +1584,7 @@ async def test__put_blob_upload_monolithic_data_in_post(
     manifest_data = await get_manifest_json(
         docker_registry_client_async, known_good_image
     )
-    manifest_data["image_name"].image += "_modified"
+    manifest_data["image_name"].image += __name__
 
     LOGGER.debug(
         "Initiating blob upload (with data): %s ...", manifest_data["image_name"]
@@ -1625,7 +1623,7 @@ async def test__put_blob_upload_monolithic_data_in_put(
     manifest_data = await get_manifest_json(
         docker_registry_client_async, known_good_image
     )
-    manifest_data["image_name"].image += "_modified"
+    manifest_data["image_name"].image += __name__
 
     LOGGER.debug("Initiating blob upload: %s ...", manifest_data["image_name"])
     response = await docker_registry_client_async.post_blob(manifest_data["image_name"])
@@ -1662,7 +1660,7 @@ async def test_put_blob_upload(
     manifest_data = await get_manifest_json(
         docker_registry_client_async, known_good_image
     )
-    manifest_data["image_name"].image += "_modified"
+    manifest_data["image_name"].image += __name__
 
     LOGGER.debug("Initiating blob upload: %s ...", manifest_data["image_name"])
     response = await docker_registry_client_async.post_blob(manifest_data["image_name"])
@@ -1722,7 +1720,7 @@ async def test_put_blob_upload_from_disk_async(
         response["client_response"].headers["Content-Length"]
     )
 
-    manifest_data["image_name"].image += "_modified"
+    manifest_data["image_name"].image += __name__
 
     LOGGER.debug("Initiating blob upload: %s ...", manifest_data["image_name"])
     response = await docker_registry_client_async.post_blob(manifest_data["image_name"])
@@ -1774,7 +1772,7 @@ async def test_put_blob_upload_from_disk_sync(
         response["client_response"].headers["Content-Length"]
     )
 
-    manifest_data["image_name"].image += "_modified"
+    manifest_data["image_name"].image += __name__
 
     LOGGER.debug("Initiating blob upload: %s ...", manifest_data["image_name"])
     response = await docker_registry_client_async.post_blob(manifest_data["image_name"])
@@ -1807,7 +1805,7 @@ async def test__put_manifest(
         assert all(x in response for x in ["client_response", "manifest"])
 
         if image_name.tag:
-            image_name.tag += "_modified"
+            image_name.tag += __name__
         LOGGER.debug(
             "Storing manifest: %s (%s) ...",
             image_name,
@@ -1849,7 +1847,7 @@ async def test_put_manifest(
 
         # Put the manifest as is ...
         if image_name.tag:
-            image_name.tag += "_modified"
+            image_name.tag += __name__
         LOGGER.debug("Storing manifest: %s (%s) ...", image_name, manifest.get_digest())
         response = await docker_registry_client_async.put_manifest(image_name, manifest)
         assert all(x in response for x in ["client_response", "digest"])
@@ -1896,7 +1894,7 @@ async def test_put_manifest_from_disk_async(
     assert all(x in response for x in ["client_response", "digest", "size"])
 
     if image_name.tag:
-        image_name.tag += "_modified"
+        image_name.tag += __name__
     LOGGER.debug("Storing manifest: %s ...", image_name)
     async with aiofiles.open(path, mode="r+b") as file:
         response = await docker_registry_client_async.put_manifest_from_disk(
@@ -1925,7 +1923,7 @@ async def test_put_manifest_from_disk_sync(
     assert all(x in response for x in ["client_response", "digest", "size"])
 
     if image_name.tag:
-        image_name.tag += "_modified"
+        image_name.tag += __name__
     LOGGER.debug("Storing manifest: %s ...", image_name)
     with path.open("r+b") as file:
         response = await docker_registry_client_async.put_manifest_from_disk(

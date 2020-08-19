@@ -77,6 +77,7 @@ class DockerRegistryClientAsync:
         """
         Args:
             credentials_store: Path to the docker registry credentials store.
+            ssl: SSL context.
             token_based_endpoints: List of token-based endpoints
         """
         if not credentials_store:

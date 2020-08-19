@@ -4,8 +4,6 @@
 
 import pytest
 
-# https://stackoverflow.com/questions/51883573/using-a-command-line-option-in-a-pytest-skip-if-condition
-
 
 def pytest_addoption(parser):
     """pytest add option."""
