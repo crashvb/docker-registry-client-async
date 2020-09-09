@@ -58,6 +58,7 @@ $ python -m pip install --editable .[dev]
 
 | Variable | Default Value | Description |
 | ---------| ------------- | ----------- |
+| DRCA_CACERTS | | The path to the certificate trust store.
 | DRCA_CHUNK_SIZE | 2097152 | The chunk size to use then replicating content.
 | DRCA_CREDENTIALS_STORE | ~/.docker/config.json | The credentials store from which to retrieve registry credentials.
 | DRCA_DEFAULT_REGISTRY | index.docker.io | The default registry index to use when resolving image names.

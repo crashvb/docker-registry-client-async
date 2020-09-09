@@ -11,7 +11,7 @@ import re
 
 from http import HTTPStatus
 from pathlib import Path
-from ssl import SSLContext
+from ssl import create_default_context, SSLContext
 from typing import Any, List, Union
 from urllib.parse import urlparse
 
@@ -77,6 +77,7 @@ class DockerRegistryClientAsync:
         """
         Args:
             credentials_store: Path to the docker registry credentials store.
+            ssl: SSL context.
             token_based_endpoints: List of token-based endpoints
         """
         if not credentials_store:
@@ -86,6 +87,12 @@ class DockerRegistryClientAsync:
                     DockerRegistryClientAsync.DEFAULT_CREDENTIALS_STORE,
                 )
             )
+        if not ssl:
+            cacerts = os.environ.get("DRCA_CACERTS", None)
+            if cacerts:
+                LOGGER.debug("Using cacerts: %s", cacerts)
+                ssl = create_default_context(cafile=str(cacerts))
+
         if not token_based_endpoints:
             token_based_endpoints = os.environ.get(
                 "DRCA_TOKEN_BASED_ENDPOINTS",
