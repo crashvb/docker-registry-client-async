@@ -335,6 +335,18 @@ async def test__get_auth_token_dockerhub():
 
 
 @pytest.mark.online
+async def test__get_auth_token_dockerhub_anonymous():
+    """Test that an authentication token can be retrieved for index.docker.io anonymously."""
+    # Note: Using default credentials store from the test environment
+    async with DockerRegistryClientAsync() as docker_registry_client_async:
+        token = await docker_registry_client_async._get_auth_token(
+            endpoint=Indices.DOCKERHUB,
+            scope=DockerAuthentication.SCOPE_REPOSITORY_PULL_PATTERN.format("busybox"),
+        )
+        assert len(token) > 100
+
+
+@pytest.mark.online
 async def test__get_auth_token_quay():
     """Test that an authentication token can be retrieved for index.docker.io."""
     endpoint = Indices.QUAY
@@ -394,6 +406,20 @@ async def test__get_request_headers_basic_auth(
     )
     assert auth in headers["Authorization"]
     assert existing_header in headers
+
+
+@pytest.mark.online
+async def test__get_request_headers_token_anonymous():
+    """Test request headers retrieval."""
+    image_name = ImageName("", endpoint=Indices.DOCKERHUB)
+    existing_header = "existing-header"
+    async with DockerRegistryClientAsync() as docker_registry_client_async:
+        headers = await docker_registry_client_async._get_request_headers(
+            image_name, {existing_header: "1"}
+        )
+        assert headers["Authorization"].startswith("Bearer ")
+        assert len(headers["Authorization"]) > 100
+        assert existing_header in headers
 
 
 @pytest.mark.parametrize(
