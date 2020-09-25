@@ -132,7 +132,7 @@ class DockerRegistryClientAsync:
             await self.client_session.close()
 
     async def _get_auth_token(
-        self, *, credentials: str, endpoint: str, scope: str
+        self, *, credentials: str = None, endpoint: str, scope: str
     ) -> str:
         """
         Retrieves the registry auth token for a given scope.
@@ -153,7 +153,9 @@ class DockerRegistryClientAsync:
         # https://github.com/docker/distribution/blob/master/docs/spec/auth/token.md
         if scope not in self.tokens[endpoint]:
             # Test using HTTP basic authentication to retrieve the www-authenticate response header ...
-            headers = {"Authorization": f"Basic {credentials}"}
+            headers = {}
+            if credentials:
+                headers["Authorization"] = f"Basic {credentials}"
 
             client_session = await self._get_client_session()
 
@@ -241,14 +243,13 @@ class DockerRegistryClientAsync:
 
         endpoint = image_name.resolve_endpoint()
         credentials = await self._get_credentials(endpoint)
-        if credentials:
-            if endpoint in self.token_based_endpoints:
-                token = await self._get_auth_token(
-                    credentials=credentials, endpoint=endpoint, scope=scope
-                )
-                headers["Authorization"] = f"Bearer {token}"
-            else:
-                headers["Authorization"] = f"Basic {credentials}"
+        if endpoint in self.token_based_endpoints:
+            token = await self._get_auth_token(
+                credentials=credentials, endpoint=endpoint, scope=scope
+            )
+            headers["Authorization"] = f"Bearer {token}"
+        elif credentials:
+            headers["Authorization"] = f"Basic {credentials}"
 
         return headers
 
