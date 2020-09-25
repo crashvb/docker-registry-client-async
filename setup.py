@@ -48,7 +48,7 @@ setup(
         "canonicaljson",
         "www_authenticate",
     ],
-    keywords="docker docker-sign docker-verify integrity sign signatures verify",
+    keywords="async client docker docker-registry docker-registry-client registry registry-client",
     license="Apache License 2.0",
     long_description=open("README.md", encoding="utf-8").read(),
     long_description_content_type="text/markdown",
