@@ -747,6 +747,32 @@ class DockerRegistryClientAsync:
         client_session = await self._get_client_session()
         return await client_session.get(headers=headers, url=url, **kwargs)
 
+    async def get_tag_list(
+        self, image_name: ImageName, **kwargs
+    ) -> DockerRegistryClientAsyncGetTags:
+        """
+        Fetch the tags under the repository identified by name.
+
+        Args:
+            image_name: The image name.
+        Keyword Args:
+            protocol: Protocol to use when connecting to the endpoint.
+
+        Returns:
+            dict:
+                client_response: The underlying client response.
+                tags: The corresponding list of image tags.
+        """
+        client_response = await self._get_tags(
+            image_name, raise_for_status=True, **kwargs
+        )
+        tags = await client_response.json()
+        tags = [
+            ImageName(image_name.image, endpoint=image_name.endpoint, tag=tag)
+            for tag in tags["tags"]
+        ]
+        return {"client_response": client_response, "tags": tags}
+
     async def get_tags(
         self, image_name: ImageName, **kwargs
     ) -> DockerRegistryClientAsyncGetTags:
