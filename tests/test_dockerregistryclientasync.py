@@ -962,7 +962,9 @@ async def test_get_manifest_sanity_check():
         image_name = ImageName.parse("python")
         media_type = DockerMediaTypes.DISTRIBUTION_MANIFEST_V2
         LOGGER.debug("Retrieving manifest for: %s (%s) ...", image_name, media_type)
-        response = await docker_registry_client_async.get_manifest(image_name, accept=media_type)
+        response = await docker_registry_client_async.get_manifest(
+            image_name, accept=media_type
+        )
         assert all(x in response for x in ["client_response", "manifest"])
         assert response["manifest"]
 

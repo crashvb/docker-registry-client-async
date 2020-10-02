@@ -12,7 +12,7 @@ import re
 from http import HTTPStatus
 from pathlib import Path
 from ssl import create_default_context, SSLContext
-from typing import Any, List, Union
+from typing import Any, Dict, List, Union
 from urllib.parse import urlparse
 
 import aiofiles
@@ -56,6 +56,11 @@ from .utils import chunk_to_file, must_be_equal
 
 LOGGER = logging.getLogger(__name__)
 
+try:
+    import aiohttp_retry
+except ImportError:  # pragma: no cover
+    aiohttp_retry = None
+
 
 class DockerRegistryClientAsync:
     """
@@ -71,6 +76,7 @@ class DockerRegistryClientAsync:
         self,
         *,
         credentials_store: Path = None,
+        retry_args: Dict = None,
         ssl: Union[None, bool, Fingerprint, SSLContext] = None,
         token_based_endpoints: List[str] = None,
     ):
@@ -102,6 +108,7 @@ class DockerRegistryClientAsync:
         self.client_session = None
         self.credentials_store = credentials_store
         self.credentials = None
+        self.retry_args = retry_args if retry_args else {}
         self.ssl = ssl
         # Endpoint -> scope -> token
         self.tokens = {}
@@ -188,9 +195,17 @@ class DockerRegistryClientAsync:
             The AIOHTTP client session.
         """
         if not self.client_session:
-            self.client_session = ClientSession(
-                connector=TCPConnector(resolver=AsyncResolver(), ssl=self.ssl)
-            )
+            if aiohttp_retry is None:
+                self.client_session = ClientSession(
+                    connector=TCPConnector(resolver=AsyncResolver(), ssl=self.ssl)
+                )
+            else:
+                self.client_session = aiohttp_retry.RetryClient(
+                    connector=TCPConnector(
+                        resolver=AsyncResolver(), ssl=self.ssl, **self.retry_args
+                    )
+                )
+
         return self.client_session
 
     async def _get_credentials(self, endpoint: str) -> str:
