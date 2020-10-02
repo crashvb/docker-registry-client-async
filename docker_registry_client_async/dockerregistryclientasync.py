@@ -646,10 +646,9 @@ class DockerRegistryClientAsync:
         Returns:
             The underlying client response.
         """
-        identifier = ""
         if image_name.digest:
             identifier = image_name.resolve_digest()
-        elif image_name.tag:
+        else:
             identifier = image_name.resolve_tag()
         if accept is None:
             accept = (
@@ -887,10 +886,9 @@ class DockerRegistryClientAsync:
         Returns:
             The underlying client response.
         """
-        identifier = ""
         if image_name.digest:
             identifier = image_name.resolve_digest()
-        elif image_name.tag:
+        else:
             identifier = image_name.resolve_tag()
         protocol = kwargs.pop("protocol", DockerRegistryClientAsync.DEFAULT_PROTOCOL)
 
@@ -1271,10 +1269,9 @@ class DockerRegistryClientAsync:
         Returns:
             The underlying client response.
         """
-        identifier = ""
         if image_name.digest:
             identifier = image_name.resolve_digest()
-        elif image_name.tag:
+        else:
             identifier = image_name.resolve_tag()
         protocol = kwargs.pop("protocol", DockerRegistryClientAsync.DEFAULT_PROTOCOL)
 
