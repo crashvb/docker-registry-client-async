@@ -955,6 +955,21 @@ async def test_get_manifest(
 
 
 @pytest.mark.online
+async def test_get_manifest_sanity_check():
+    """Test that 'python' works against index.docker.io."""
+    # Note: Using default credentials store from the test environment
+    async with DockerRegistryClientAsync() as docker_registry_client_async:
+        image_name = ImageName.parse("python")
+        media_type = DockerMediaTypes.DISTRIBUTION_MANIFEST_V2
+        LOGGER.debug("Retrieving manifest for: %s (%s) ...", image_name, media_type)
+        response = await docker_registry_client_async.get_manifest(
+            image_name, accept=media_type
+        )
+        assert all(x in response for x in ["client_response", "manifest"])
+        assert response["manifest"]
+
+
+@pytest.mark.online
 async def test_get_manifest_to_disk_async(
     docker_registry_client_async: DockerRegistryClientAsync,
     known_good_image,
@@ -1023,6 +1038,26 @@ async def test__get_tags(
     assert tags["name"] == image_name.resolve_image()
     assert "tags" in tags
     assert image_name.resolve_tag() in tags["tags"]
+
+
+@pytest.mark.online
+async def test_get_tag_list(
+    docker_registry_client_async: DockerRegistryClientAsync, known_good_image
+):
+    """Test that the image tags can be retrieved."""
+    image_name = ImageName.parse(
+        f"{known_good_image['image']}:{known_good_image['tag']}"
+    )
+    LOGGER.debug("Retrieving tag list for: %s ...", image_name)
+    response = await docker_registry_client_async.get_tag_list(image_name)
+    assert all(x in response for x in ["client_response", "tags"])
+
+    result = False
+    for entry in response["tags"]:
+        if entry.resolve_tag() == image_name.resolve_tag():
+            result = True
+            break
+    assert result
 
 
 @pytest.mark.online
