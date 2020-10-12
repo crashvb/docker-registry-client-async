@@ -900,12 +900,15 @@ class DockerRegistryClientAsync:
             "result": client_response.status == HTTPStatus.OK,
         }
 
-    async def _head_manifest(self, image_name: ImageName, **kwargs) -> ClientResponse:
+    async def _head_manifest(
+        self, image_name: ImageName, *, accept: str = None, **kwargs
+    ) -> ClientResponse:
         """
         Check an image manifest for existence.
 
         Args:
             image_name: The image name.
+            accept: The "Accept" HTTP request header.
         Keyword Args:
             protocol: Protocol to use when connecting to the endpoint.
 
@@ -916,10 +919,16 @@ class DockerRegistryClientAsync:
             identifier = image_name.resolve_digest()
         else:
             identifier = image_name.resolve_tag()
+        if accept is None:
+            accept = (
+                f"{DockerMediaTypes.DISTRIBUTION_MANIFEST_V2};q=1.0,{OCIMediaTypes.IMAGE_MANIFEST_V1};q=0.5,"
+                f"{DockerMediaTypes.DISTRIBUTION_MANIFEST_V1};q=0.1"
+            )
         protocol = kwargs.pop("protocol", DockerRegistryClientAsync.DEFAULT_PROTOCOL)
 
         headers = await self._get_request_headers(
             image_name,
+            {"Accept": accept},
             scope=DockerAuthentication.SCOPE_REPOSITORY_PULL_PATTERN.format(
                 image_name.resolve_image()
             ),
@@ -929,13 +938,14 @@ class DockerRegistryClientAsync:
         return await client_session.head(headers=headers, url=url, **kwargs)
 
     async def head_manifest(
-        self, image_name: ImageName, **kwargs
+        self, image_name: ImageName, *, accept: str = None, **kwargs
     ) -> DockerRegistryClientAsyncHeadManifest:
         """
         Check an image manifest for existence.
 
         Args:
             image_name: The image name.
+            accept: The "Accept" HTTP request header.
         Keyword Args:
             protocol: Protocol to use when connecting to the endpoint.
 
@@ -945,7 +955,7 @@ class DockerRegistryClientAsync:
                 digest: The manifest digest returned by the server, or None.
                 result: True if the image manifest exists, False otherwise.
         """
-        client_response = await self._head_manifest(image_name, **kwargs)
+        client_response = await self._head_manifest(image_name, accept=accept, **kwargs)
         digest = None
         if "Docker-Content-Digest" in client_response.headers:
             digest = FormattedSHA256.parse(
