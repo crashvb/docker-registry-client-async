@@ -65,7 +65,9 @@ def hashing_generator_sync(
         }
 
 
-async def test_get_digest_async(hashing_generator_async: TypingHashingGenerator,):
+async def test_get_digest_async(
+    hashing_generator_async: TypingHashingGenerator,
+):
     """Test digest value calculation (async)."""
     async for _ in hashing_generator_async["hashing_generator"]:
         pass
@@ -73,7 +75,9 @@ async def test_get_digest_async(hashing_generator_async: TypingHashingGenerator,
     assert hashing_generator_async["hashing_generator"].get_digest() == digest
 
 
-async def test_get_digest_sync(hashing_generator_sync: TypingHashingGenerator,):
+async def test_get_digest_sync(
+    hashing_generator_sync: TypingHashingGenerator,
+):
     """Test digest value calculation (sync)."""
     async for _ in hashing_generator_sync["hashing_generator"]:
         pass

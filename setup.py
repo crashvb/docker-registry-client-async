@@ -54,7 +54,6 @@ setup(
     long_description_content_type="text/markdown",
     name="docker_registry_client_async",
     packages=find_packages(),
-    setup_requires=["pytest-runner"],
     tests_require=["pytest", "pytest-asyncio", "pytest-docker-registry-fixtures"],
     test_suite="tests",
     url="https://pypi.org/project/docker-registry-client-async/",

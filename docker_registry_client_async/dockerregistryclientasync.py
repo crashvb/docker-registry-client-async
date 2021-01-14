@@ -1056,7 +1056,10 @@ class DockerRegistryClientAsync:
         """
         hashing_generator = HashingGenerator(file, file_is_async=file_is_async)
         client_response = await self._patch_blob_upload(
-            location, hashing_generator, raise_for_status=True, **kwargs,
+            location,
+            hashing_generator,
+            raise_for_status=True,
+            **kwargs,
         )
         return {
             "client_response": client_response,
@@ -1267,7 +1270,11 @@ class DockerRegistryClientAsync:
         """
         hashing_generator = HashingGenerator(file, file_is_async=file_is_async)
         client_response = await self._put_blob_upload(
-            location, digest, data=hashing_generator, raise_for_status=True, **kwargs,
+            location,
+            digest,
+            data=hashing_generator,
+            raise_for_status=True,
+            **kwargs,
         )
         digest = FormattedSHA256.parse(client_response.headers["Docker-Content-Digest"])
         if check_digest:
