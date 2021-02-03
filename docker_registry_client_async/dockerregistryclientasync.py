@@ -73,6 +73,7 @@ class DockerRegistryClientAsync:
         credentials_store: Path = None,
         ssl: Union[None, bool, Fingerprint, SSLContext] = None,
         token_based_endpoints: List[str] = None,
+        **kwargs
     ):
         """
         Args:

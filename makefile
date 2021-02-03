@@ -17,7 +17,6 @@ build:
 	unzip -l dist/*.whl
 
 deploy: clean build sign
-
 	python -m twine upload dist/*
 
 deploy-test: clean build sign
@@ -43,7 +42,8 @@ release:
 
 
 sign:
-	find dist -type f \( -iname "*.tar.gz" -o -iname "*.whl" \) -exec gpg --armor --detach-sig --sign {} \;
+	$(eval keyid := $(shell sed --expression='s/^.*signingkey = \(.*\)/\1/p' --quiet $(HOME)/.gitconfig))
+	find dist -type f \( -iname "*.tar.gz" -o -iname "*.whl" \) -exec gpg --armor --detach-sig --local-user=$(keyid) --sign {} \;
 
 test:
 	python -m pytest --log-cli-level info $(args)
