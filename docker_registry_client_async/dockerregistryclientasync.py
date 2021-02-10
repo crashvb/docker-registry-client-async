@@ -73,7 +73,7 @@ class DockerRegistryClientAsync:
         credentials_store: Path = None,
         ssl: Union[None, bool, Fingerprint, SSLContext] = None,
         token_based_endpoints: List[str] = None,
-        **kwargs
+        **kwargs,
     ):
         """
         Args:
@@ -93,6 +93,9 @@ class DockerRegistryClientAsync:
             if cacerts:
                 LOGGER.debug("Using cacerts: %s", cacerts)
                 ssl = create_default_context(cafile=str(cacerts))
+
+        if ssl:
+            LOGGER.debug("SSL Context: %s", ssl.cert_store_stats())
 
         if not token_based_endpoints:
             token_based_endpoints = os.environ.get(
