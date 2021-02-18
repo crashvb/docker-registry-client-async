@@ -738,6 +738,10 @@ class DockerRegistryClientAsync:
         Returns:
             The underlying client response.
         """
+        params = {}
+        for param in ["last", "n"]:
+            if param in kwargs:
+                params[param] = kwargs.pop(param)
         protocol = kwargs.pop("protocol", DockerRegistryClientAsync.DEFAULT_PROTOCOL)
 
         headers = await self._get_request_headers(
@@ -749,7 +753,9 @@ class DockerRegistryClientAsync:
         )
         url = f"{protocol}://{image_name.resolve_endpoint()}/v2/{image_name.resolve_image()}/tags/list"
         client_session = await self._get_client_session()
-        return await client_session.get(headers=headers, url=url, **kwargs)
+        return await client_session.get(
+            headers=headers, params=params, url=url, **kwargs
+        )
 
     async def get_tag_list(
         self, image_name: ImageName, **kwargs
