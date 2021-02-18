@@ -73,7 +73,7 @@ class DockerRegistryClientAsync:
         credentials_store: Path = None,
         ssl: Union[None, bool, Fingerprint, SSLContext] = None,
         token_based_endpoints: List[str] = None,
-        **kwargs
+        **kwargs,
     ):
         """
         Args:
@@ -93,6 +93,9 @@ class DockerRegistryClientAsync:
             if cacerts:
                 LOGGER.debug("Using cacerts: %s", cacerts)
                 ssl = create_default_context(cafile=str(cacerts))
+
+        if ssl:
+            LOGGER.debug("SSL Context: %s", ssl.cert_store_stats())
 
         if not token_based_endpoints:
             token_based_endpoints = os.environ.get(
@@ -735,6 +738,10 @@ class DockerRegistryClientAsync:
         Returns:
             The underlying client response.
         """
+        params = {}
+        for param in ["last", "n"]:
+            if param in kwargs:
+                params[param] = kwargs.pop(param)
         protocol = kwargs.pop("protocol", DockerRegistryClientAsync.DEFAULT_PROTOCOL)
 
         headers = await self._get_request_headers(
@@ -746,7 +753,9 @@ class DockerRegistryClientAsync:
         )
         url = f"{protocol}://{image_name.resolve_endpoint()}/v2/{image_name.resolve_image()}/tags/list"
         client_session = await self._get_client_session()
-        return await client_session.get(headers=headers, url=url, **kwargs)
+        return await client_session.get(
+            headers=headers, params=params, url=url, **kwargs
+        )
 
     async def get_tag_list(
         self, image_name: ImageName, **kwargs

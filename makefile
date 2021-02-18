@@ -42,7 +42,7 @@ release:
 
 
 sign:
-	$(eval keyid := $(shell sed --expression='s/^.*signingkey = \(.*\)/\1/p' --quiet $(HOME)/.gitconfig))
+	$(eval keyid := $(shell git config --get user.signingkey))
 	find dist -type f \( -iname "*.tar.gz" -o -iname "*.whl" \) -exec gpg --armor --detach-sig --local-user=$(keyid) --sign {} \;
 
 test:
