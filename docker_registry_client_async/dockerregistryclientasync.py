@@ -12,7 +12,7 @@ import re
 from http import HTTPStatus
 from pathlib import Path
 from ssl import create_default_context, SSLContext
-from typing import Any, List, Union
+from typing import Any, Dict, List, Union
 from urllib.parse import urlparse
 
 import aiofiles
@@ -71,6 +71,7 @@ class DockerRegistryClientAsync:
         self,
         *,
         credentials_store: Path = None,
+        resolver_kwargs: Dict = None,
         ssl: Union[None, bool, Fingerprint, SSLContext] = None,
         token_based_endpoints: List[str] = None,
         **kwargs,
@@ -78,6 +79,7 @@ class DockerRegistryClientAsync:
         """
         Args:
             credentials_store: Path to the docker registry credentials store.
+            resolver_kwargs: Arguments to be passed to the resolver
             ssl: SSL context.
             token_based_endpoints: List of token-based endpoints
         """
@@ -88,6 +90,8 @@ class DockerRegistryClientAsync:
                     DockerRegistryClientAsync.DEFAULT_CREDENTIALS_STORE,
                 )
             )
+        if not resolver_kwargs:
+            resolver_kwargs = {}
         if not ssl:
             cacerts = os.environ.get("DRCA_CACERTS", None)
             if cacerts:
@@ -106,6 +110,7 @@ class DockerRegistryClientAsync:
         self.client_session = None
         self.credentials_store = credentials_store
         self.credentials = None
+        self.resolver_kwargs = resolver_kwargs
         self.ssl = ssl
         # Endpoint -> scope -> token
         self.tokens = {}
@@ -193,7 +198,9 @@ class DockerRegistryClientAsync:
         """
         if not self.client_session:
             self.client_session = ClientSession(
-                connector=TCPConnector(resolver=AsyncResolver(), ssl=self.ssl)
+                connector=TCPConnector(
+                    resolver=AsyncResolver(**self.resolver_kwargs), ssl=self.ssl
+                )
             )
         return self.client_session
 
