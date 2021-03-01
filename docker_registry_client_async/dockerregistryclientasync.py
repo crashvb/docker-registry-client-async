@@ -76,6 +76,7 @@ class DockerRegistryClientAsync:
         token_based_endpoints: List[str] = None,
         **kwargs,
     ):
+        # pylint: disable=unused-argument
         """
         Args:
             credentials_store: Path to the docker registry credentials store.

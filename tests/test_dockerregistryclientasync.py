@@ -202,6 +202,7 @@ async def docker_registry_client_async(
     docker_registry_secure: DockerRegistrySecure,
     replicate_manifest_lists,
 ) -> DockerRegistryClientAsync:
+    # pylint: disable=unused-argument
     """Provides a DockerRegistryClientAsync instance."""
     # Do not use caching; get a new instance for each test
     async with DockerRegistryClientAsync(

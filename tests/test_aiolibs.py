@@ -36,7 +36,7 @@ async def test_aiodns_domain_search_list(
     LOGGER.debug("Qualified resolution: %s", response)
     assert response.name
     assert (response.name == name_qualified) or (name_qualified in response.aliases)
-    assert len(response.addresses)
+    assert response.addresses
 
     # Unqualified w/o domain search list
     with pytest.raises(DNSError) as exception:
@@ -54,7 +54,7 @@ async def test_aiodns_domain_search_list(
     assert (response.name == name_qualified) or next(
         alias for alias in response.aliases if alias.startswith(f"{name_unqualified}.")
     )
-    assert len(response.addresses)
+    assert response.addresses
 
 
 @pytest.mark.parametrize(
@@ -71,7 +71,7 @@ async def test_aiohttp_domain_search_list(
     # Fully Qualified
     response = await async_resolver.resolve(name_qualified, family=AF_INET)
     LOGGER.debug("Qualified resolution: %s", response)
-    assert len(response)
+    assert response
     assert response[0]["hostname"] == name_qualified
     assert response[0]["host"]
 
@@ -85,6 +85,6 @@ async def test_aiohttp_domain_search_list(
     # Unqualified w/ domain search list
     response = await async_resolver.resolve(name_unqualified, family=AF_INET)
     LOGGER.debug("Unqualified resolution: %s", response)
-    assert len(response)
+    assert response
     assert response[0]["hostname"] == name_unqualified
     assert response[0]["host"]
