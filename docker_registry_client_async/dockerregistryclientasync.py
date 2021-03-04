@@ -62,6 +62,7 @@ class DockerRegistryClientAsync:
     AIOHTTP based Python REST client for the Docker Registry.
     """
 
+    DEBUG = os.environ.get("DRCA_DEBUG", "")
     DEFAULT_CREDENTIALS_STORE = Path.home().joinpath(".docker/config.json")
     # TODO: Remove TOKEN_BASED url checks, and implement proper response code parsing, and token lifecycle ...
     DEFAULT_TOKEN_BASED_ENDPOINTS = "index.docker.io,quay.io,registry.redhat.io"
@@ -96,10 +97,11 @@ class DockerRegistryClientAsync:
         if not ssl:
             cacerts = os.environ.get("DRCA_CACERTS", None)
             if cacerts:
-                LOGGER.debug("Using cacerts: %s", cacerts)
+                if DockerRegistryClientAsync.DEBUG:
+                    LOGGER.debug("Using cacerts: %s", cacerts)
                 ssl = create_default_context(cafile=str(cacerts))
 
-        if ssl:
+        if ssl and DockerRegistryClientAsync.DEBUG:
             LOGGER.debug("SSL Context: %s", ssl.cert_store_stats())
 
         if not token_based_endpoints:
@@ -288,7 +290,10 @@ class DockerRegistryClientAsync:
             self.credentials = {}
 
         if self.credentials_store:
-            LOGGER.debug("Loading credentials from store: %s", self.credentials_store)
+            if DockerRegistryClientAsync.DEBUG:
+                LOGGER.debug(
+                    "Loading credentials from store: %s", self.credentials_store
+                )
 
             # TODO: Add support for secure providers:
             #       https://docs.docker.com/engine/reference/commandline/login/#credentials-store

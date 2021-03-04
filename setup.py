@@ -56,6 +56,6 @@ setup(
     packages=find_packages(),
     tests_require=["pytest", "pytest-asyncio", "pytest-docker-registry-fixtures"],
     test_suite="tests",
-    url="https://pypi.org/project/docker-registry-client-async/",
+    url="https://github.com/crashvb/docker-registry-client-async",
     version=find_version("docker_registry_client_async", "__init__.py"),
 )
