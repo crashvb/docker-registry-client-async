@@ -39,7 +39,11 @@ class ImageName:
         """
         self.digest = digest
         self.endpoint = endpoint
+        if self.endpoint:
+            self.endpoint = self.endpoint.replace("/", "")
         self.image = image
+        if self.image.startswith("/"):
+            self.image = self.image[1:]
         self.tag = tag
 
     def __str__(self):
@@ -126,7 +130,7 @@ class ImageName:
 
             if any(x in segments[0] for x in [":", "."]):
                 result["endpoint"] = segments[0]
-            else:
+            elif segments[0]:
                 result["image"] = f"{segments[0]}/{result['image']}"
 
         return result

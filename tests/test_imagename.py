@@ -23,26 +23,30 @@ class TypingGetTestData(TypedDict):
 
 def get_test_data() -> Generator[TypingGetTestData, None, None]:
     """Dynamically initializes test data."""
-    for endpoint in ["endpoint.io", "endpoint:port", None]:
-        for image in ["image", "ns0/image", "ns0/ns1/image", "ns0/ns1/ns2/image"]:
-            for tag in ["tag", None]:
-                for digest in [FormattedSHA256.calculate(b""), None]:
-                    # Construct a complex string ...
-                    string = image
-                    if tag:
-                        string = f"{string}:{tag}"
-                    if digest:
-                        string = f"{string}@{digest}"
-                    if endpoint:
-                        string = f"{endpoint}/{string}"
-                    yield {
-                        "digest": digest,
-                        "endpoint": endpoint,
-                        "image": image,
-                        "object": ImageName.parse(string),
-                        "string": string,
-                        "tag": tag,
-                    }
+    for endpoint in ["endpoint.io", "endpoint:port", "endpoint.io:port", None]:
+        for slash in ["", "/"]:
+            for _image in ["image", "ns0/image", "ns0/ns1/image", "ns0/ns1/ns2/image"]:
+                image = f"{slash}{_image}"
+                for tag in ["tag", None]:
+                    for digest in [FormattedSHA256.calculate(b""), None]:
+                        # Construct a complex string ...
+                        string = image
+                        if tag:
+                            string = f"{string}:{tag}"
+                        if digest:
+                            string = f"{string}@{digest}"
+                        if endpoint:
+                            if string.startswith("/"):
+                                string = string[1:]
+                            string = f"{endpoint}/{string}"
+                        yield {
+                            "digest": digest,
+                            "endpoint": endpoint,  # Should be normalized to not have a trailing slash
+                            "image": _image,  # Should be normalized to not have a leading slash
+                            "object": ImageName.parse(string),
+                            "string": string,
+                            "tag": tag,
+                        }
 
 
 @pytest.fixture(params=get_test_data())
@@ -65,6 +69,7 @@ def test___str__(image_data: TypingGetTestData):
     """Test __str__ pass-through for different variants."""
     string = str(image_data["object"])
     assert image_data["image"] in string
+    assert not string.startswith("/")
     if image_data["digest"]:
         assert image_data["digest"] in string
     else:
@@ -100,7 +105,9 @@ def test_parse_string(image_data: TypingGetTestData):
     assert result["endpoint"] == image_data["endpoint"]
     if image_data["endpoint"]:
         assert ImageName.DEFAULT_ENDPOINT not in str(result["endpoint"])
+        assert not result["endpoint"].endswith("/")
     assert result["image"] == image_data["image"]
+    assert not result["image"].startswith("/")
     assert ImageName.DEFAULT_NAMESPACE not in str(result["image"])
     assert result["tag"] == image_data["tag"]
     if image_data["tag"]:
