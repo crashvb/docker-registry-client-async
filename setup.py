@@ -41,6 +41,7 @@ setup(
         "test": ["pytest-xdist"],
     },
     include_package_data=True,
+    python_requires=">=3.8",
     install_requires=[
         "aiodns",
         "aiofiles",
