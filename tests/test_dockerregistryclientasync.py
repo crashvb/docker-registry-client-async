@@ -332,7 +332,7 @@ async def test__get_auth_token_dockerhub():
             )
             assert len(token) > 100
         else:
-            pytest.skip("Unable to retrieve credentials for: %s", endpoint)
+            pytest.skip(f"Unable to retrieve credentials for: {endpoint}")
 
 
 @pytest.mark.online
@@ -364,7 +364,7 @@ async def test__get_auth_token_quay():
             )
             assert len(token) > 100
         else:
-            pytest.skip("Unable to retrieve credentials for: %s", endpoint)
+            pytest.skip(f"Unable to retrieve credentials for: {endpoint}")
 
 
 async def test__get_client_session(
