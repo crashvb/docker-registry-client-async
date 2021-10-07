@@ -22,6 +22,7 @@ class TypingGetTestData(TypedDict):
 
 
 def get_test_data() -> Generator[TypingGetTestData, None, None]:
+    # pytest: disable=too-many-nested-blocks
     """Dynamically initializes test data."""
     for endpoint in ["endpoint.io", "endpoint:port", "endpoint.io:port", None]:
         for slash in ["", "/"]:
@@ -65,6 +66,38 @@ def test___init__(image_data: TypingGetTestData):
     )
 
 
+def test___eq__():
+    # pylint: disable=comparison-with-itself
+    """Test __eq__ pass-through for different variants."""
+    image_name0 = ImageName.parse("a")
+    image_name1 = ImageName.parse("a")
+    assert image_name0 == image_name0
+    assert image_name0 == image_name1
+    assert image_name1 == image_name0
+    assert image_name1 == image_name1
+
+    image_name2 = ImageName.parse("b")
+    assert image_name0 != image_name2
+    assert image_name2 != image_name0
+
+
+def test___lt__():
+    """Test __lt__ pass-through for different variants."""
+    image_name0 = ImageName.parse("a")
+    image_name1 = ImageName.parse("b")
+    assert image_name0 < image_name1
+    assert image_name1 > image_name0
+
+
+def test___hash():
+    """Test __str__ pass-through for different variants."""
+    hash0 = hash(ImageName.parse("a"))
+    hash1 = hash(ImageName.parse("a"))
+    hash2 = hash(ImageName.parse("b"))
+    assert hash0 == hash1
+    assert hash0 != hash2
+
+
 def test___str__(image_data: TypingGetTestData):
     """Test __str__ pass-through for different variants."""
     string = str(image_data["object"])
@@ -90,9 +123,11 @@ def test___str__(image_data: TypingGetTestData):
 def test_clone(image_data: TypingGetTestData):
     """Test object cloning."""
     clone = image_data["object"].clone()
-    assert clone != image_data["object"]
+    assert id(clone) != id(image_data["object"])
+    assert clone == image_data["object"]
     assert str(clone) == str(image_data["object"])
     clone.endpoint = "gemini.man"
+    assert clone != image_data["object"]
     assert str(clone) != str(image_data["object"])
 
 

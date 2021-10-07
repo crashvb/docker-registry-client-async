@@ -46,6 +46,24 @@ class ImageName:
             self.image = self.image[1:]
         self.tag = tag
 
+    def __eq__(self, other):
+        """
+        Args:
+            other: The instance to which "self" is compared.
+        """
+        return str(self) == str(other)
+
+    def __lt__(self, other):
+        """
+        Args:
+            other: The instance to which "self" is compared.
+        """
+        return str(self) < str(other)
+
+    def __hash__(self):
+        """Hash according to our string value"""
+        return hash(str(self))
+
     def __str__(self):
         """Does not resolve component parts."""
         result = self.image
