@@ -4,6 +4,8 @@
 
 import pytest
 
+from pytest_asyncio.plugin import Mode
+
 
 def pytest_addoption(parser):
     """pytest add option."""
@@ -68,3 +70,5 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers", "online_modification: allow modification of online content."
     )
+
+    config.option.asyncio_mode = Mode.AUTO

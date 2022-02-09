@@ -145,7 +145,7 @@ async def test_chunk_file(client_session: ClientSession, tmp_path: Path):
         (None, None, True),
     ],
 )
-def test_must_be_equal(expected: Any, actual: Any, result: bool):
+async def test_must_be_equal(expected: Any, actual: Any, result: bool):
     """Test that equality can be determined."""
     if not result:
         with pytest.raises(RuntimeError) as exc_info:
@@ -157,7 +157,7 @@ def test_must_be_equal(expected: Any, actual: Any, result: bool):
         must_be_equal(expected, actual)
 
 
-def test_must_be_equal_msg(expected: Any = "bar", actual: Any = "foo"):
+async def test_must_be_equal_msg(expected: Any = "bar", actual: Any = "foo"):
     """Test that an custom error message can be used."""
     message = "custom message here"
     with pytest.raises(RuntimeError) as exc_info:

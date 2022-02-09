@@ -12,7 +12,7 @@ import re
 from http import HTTPStatus
 from pathlib import Path
 from ssl import create_default_context, SSLContext
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, List, Optional, Union
 from urllib.parse import urlparse
 
 import aiofiles
@@ -25,6 +25,7 @@ from aiohttp import (
     Fingerprint,
     TCPConnector,
 )
+from aiohttp.helpers import BasicAuth
 from aiohttp.typedefs import LooseHeaders
 
 from .formattedsha256 import FormattedSHA256
@@ -72,6 +73,9 @@ class DockerRegistryClientAsync:
         self,
         *,
         credentials_store: Path = None,
+        no_proxy: str = None,
+        proxies: Dict[str, str] = None,
+        proxy_auth: BasicAuth = None,
         resolver_kwargs: Dict = None,
         ssl: Union[None, bool, Fingerprint, SSLContext] = None,
         token_based_endpoints: List[str] = None,
@@ -81,6 +85,9 @@ class DockerRegistryClientAsync:
         """
         Args:
             credentials_store: Path to the docker registry credentials store.
+            no_proxy: A comma separated list of domains to exclude from proxying.
+            proxies: Mapping of protocols to proxy urls, optionally including credentials.
+            proxy_auth: The credentials to use when proxying.
             resolver_kwargs: Arguments to be passed to the resolver
             ssl: SSL context.
             token_based_endpoints: List of token-based endpoints
@@ -92,6 +99,18 @@ class DockerRegistryClientAsync:
                     DockerRegistryClientAsync.DEFAULT_CREDENTIALS_STORE,
                 )
             )
+        if not proxies:
+            proxies = {}
+        http_proxy = os.environ.get("HTTP_PROXY")
+        if http_proxy and "http" not in proxies:
+            proxies["http"] = http_proxy
+        https_proxy = os.environ.get("HTTPS_PROXY")
+        if https_proxy and "https" not in proxies:
+            proxies["https"] = https_proxy
+
+        if not no_proxy:
+            no_proxy = os.environ.get("NO_PROXY")
+        no_proxy = no_proxy.split(",") if no_proxy else []
         if not resolver_kwargs:
             resolver_kwargs = {}
         if not ssl:
@@ -113,6 +132,9 @@ class DockerRegistryClientAsync:
         self.client_session = None
         self.credentials_store = credentials_store
         self.credentials = None
+        self.proxies = proxies
+        self.proxy_auth = proxy_auth
+        self.proxy_no = no_proxy
         self.resolver_kwargs = resolver_kwargs
         self.ssl = ssl
         # Endpoint -> scope -> token
@@ -171,9 +193,16 @@ class DockerRegistryClientAsync:
 
             client_session = await self._get_client_session()
 
-            url = f"{DockerRegistryClientAsync.DEFAULT_PROTOCOL}://{endpoint}/v2/"
+            protocol = DockerRegistryClientAsync.DEFAULT_PROTOCOL
+            url = f"{protocol}://{endpoint}/v2/"
+            proxy = await self._get_proxy(endpoint=endpoint, protocol=protocol)
             client_response = await client_session.get(
-                headers=headers, raise_for_status=False, url=url
+                headers=headers,
+                raise_for_status=False,
+                proxy=proxy,
+                proxy_auth=self.proxy_auth,
+                ssl=self.ssl,
+                url=url,
             )
             auth_params = www_authenticate.parse(
                 client_response.headers["Www-Authenticate"]
@@ -184,7 +213,12 @@ class DockerRegistryClientAsync:
                 bearer["realm"], bearer["service"], scope
             )
             client_response = await client_session.get(
-                headers=headers, raise_for_status=True, url=url
+                headers=headers,
+                raise_for_status=True,
+                proxy=proxy,
+                proxy_auth=self.proxy_auth,
+                ssl=self.ssl,
+                url=url,
             )
             payload = await client_response.json()
 
@@ -207,7 +241,7 @@ class DockerRegistryClientAsync:
             )
         return self.client_session
 
-    async def _get_credentials(self, endpoint: str) -> str:
+    async def _get_credentials(self, endpoint: str) -> Optional[str]:
         """
         Retrieves the registry credentials for a given endpoint
 
@@ -229,6 +263,18 @@ class DockerRegistryClientAsync:
             if result:
                 break
 
+        return result
+
+    async def _get_proxy(self, *, endpoint: str, protocol: str) -> Optional[str]:
+        """
+        Retrieves the proxy configuration for a given endpoint.
+
+        Args:
+            endpoint: The endpoint for which to retrieve the proxy configuration.
+        """
+        result = None
+        if endpoint not in self.proxy_no and protocol in self.proxies:
+            result = self.proxies[protocol]
         return result
 
     async def _get_request_headers(
@@ -284,6 +330,19 @@ class DockerRegistryClientAsync:
         )
         return ImageName(image, endpoint=parts.netloc)
 
+    @staticmethod
+    def _get_protocol_from_blob_upload(location: str) -> str:
+        """
+        Parses and returns the protocol from the location returned for a blob upload
+
+        Args:
+            location: The "Location" header returned by various blob upload API endpoints.
+
+        Returns:
+            The corresponding protocol.
+        """
+        return location.split("://")[0].lower()
+
     async def _load_credentials(self):
         """Retrieves the registry credentials from the docker registry credentials store for a given endpoint."""
         if self.credentials is None:
@@ -329,7 +388,17 @@ class DockerRegistryClientAsync:
         )
         url = f"{protocol}://{image_name.resolve_endpoint()}/v2/{image_name.resolve_image()}/blobs/{digest}"
         client_session = await self._get_client_session()
-        return await client_session.delete(headers=headers, url=url, **kwargs)
+        proxy = await self._get_proxy(
+            endpoint=image_name.resolve_endpoint(), protocol=protocol
+        )
+        return await client_session.delete(
+            headers=headers,
+            proxy=proxy,
+            proxy_auth=self.proxy_auth,
+            ssl=self.ssl,
+            url=url,
+            **kwargs,
+        )
 
     async def delete_blob(
         self, image_name: ImageName, digest: FormattedSHA256, **kwargs
@@ -366,6 +435,7 @@ class DockerRegistryClientAsync:
             The underlying client response.
         """
         kwargs.pop("protocol", None)
+        protocol = DockerRegistryClientAsync._get_protocol_from_blob_upload(location)
         image_name = DockerRegistryClientAsync._get_image_name_from_blob_upload(
             location
         )
@@ -376,7 +446,16 @@ class DockerRegistryClientAsync:
             ),
         )
         client_session = await self._get_client_session()
-        return await client_session.delete(headers=headers, url=location, **kwargs)
+        proxy = await self._get_proxy(
+            endpoint=image_name.resolve_endpoint(), protocol=protocol
+        )
+        return await client_session.delete(
+            headers=headers,
+            proxy=proxy,
+            proxy_auth=self.proxy_auth,
+            url=location,
+            **kwargs,
+        )
 
     async def delete_blob_upload(
         self, location: str, **kwargs
@@ -426,7 +505,17 @@ class DockerRegistryClientAsync:
             f"{image_name.resolve_digest()}"
         )
         client_session = await self._get_client_session()
-        return await client_session.delete(headers=headers, url=url, **kwargs)
+        proxy = await self._get_proxy(
+            endpoint=image_name.resolve_endpoint(), protocol=protocol
+        )
+        return await client_session.delete(
+            headers=headers,
+            proxy=proxy,
+            proxy_auth=self.proxy_auth,
+            ssl=self.ssl,
+            url=url,
+            **kwargs,
+        )
 
     async def delete_manifest(
         self, image_name: ImageName, **kwargs
@@ -483,8 +572,17 @@ class DockerRegistryClientAsync:
             ),
         )
         client_session = await self._get_client_session()
+        proxy = await self._get_proxy(
+            endpoint=image_name.resolve_endpoint(), protocol=protocol
+        )
         return await client_session.get(
-            headers=headers, url=url, allow_redirects=True, **kwargs
+            allow_redirects=True,
+            headers=headers,
+            proxy=proxy,
+            proxy_auth=self.proxy_auth,
+            ssl=self.ssl,
+            url=url,
+            **kwargs,
         )
 
     async def get_blob(
@@ -560,6 +658,7 @@ class DockerRegistryClientAsync:
             The underlying client response.
         """
         kwargs.pop("protocol", None)
+        protocol = DockerRegistryClientAsync._get_protocol_from_blob_upload(location)
         image_name = DockerRegistryClientAsync._get_image_name_from_blob_upload(
             location
         )
@@ -570,7 +669,16 @@ class DockerRegistryClientAsync:
             ),
         )
         client_session = await self._get_client_session()
-        return await client_session.get(headers=headers, url=location, **kwargs)
+        proxy = await self._get_proxy(
+            endpoint=image_name.resolve_endpoint(), protocol=protocol
+        )
+        return await client_session.get(
+            headers=headers,
+            proxy=proxy,
+            proxy_auth=self.proxy_auth,
+            url=location,
+            **kwargs,
+        )
 
     async def get_blob_upload(
         self, location: str, **kwargs
@@ -620,8 +728,17 @@ class DockerRegistryClientAsync:
         )
         url = f"{protocol}://{image_name.resolve_endpoint()}/v2/_catalog"
         client_session = await self._get_client_session()
+        proxy = await self._get_proxy(
+            endpoint=image_name.resolve_endpoint(), protocol=protocol
+        )
         return await client_session.get(
-            headers=headers, params=params, url=url, **kwargs
+            headers=headers,
+            params=params,
+            proxy=proxy,
+            proxy_auth=self.proxy_auth,
+            ssl=self.ssl,
+            url=url,
+            **kwargs,
         )
 
     async def get_catalog(
@@ -683,7 +800,17 @@ class DockerRegistryClientAsync:
         )
         url = f"{protocol}://{image_name.resolve_endpoint()}/v2/{image_name.resolve_image()}/manifests/{identifier}"
         client_session = await self._get_client_session()
-        return await client_session.get(headers=headers, url=url, **kwargs)
+        proxy = await self._get_proxy(
+            endpoint=image_name.resolve_endpoint(), protocol=protocol
+        )
+        return await client_session.get(
+            headers=headers,
+            proxy=proxy,
+            proxy_auth=self.proxy_auth,
+            ssl=self.ssl,
+            url=url,
+            **kwargs,
+        )
 
     async def get_manifest(
         self, image_name: ImageName, *, accept: str = None, **kwargs
@@ -766,8 +893,17 @@ class DockerRegistryClientAsync:
         )
         url = f"{protocol}://{image_name.resolve_endpoint()}/v2/{image_name.resolve_image()}/tags/list"
         client_session = await self._get_client_session()
+        proxy = await self._get_proxy(
+            endpoint=image_name.resolve_endpoint(), protocol=protocol
+        )
         return await client_session.get(
-            headers=headers, params=params, url=url, **kwargs
+            headers=headers,
+            params=params,
+            proxy=proxy,
+            proxy_auth=self.proxy_auth,
+            ssl=self.ssl,
+            url=url,
+            **kwargs,
         )
 
     async def get_tag_list(
@@ -841,7 +977,17 @@ class DockerRegistryClientAsync:
         )
         url = f"{protocol}://{image_name.resolve_endpoint()}/v{version}/"
         client_session = await self._get_client_session()
-        return await client_session.head(headers=headers, url=url, **kwargs)
+        proxy = await self._get_proxy(
+            endpoint=image_name.resolve_endpoint(), protocol=protocol
+        )
+        return await client_session.head(
+            headers=headers,
+            proxy=proxy,
+            proxy_auth=self.proxy_auth,
+            ssl=self.ssl,
+            url=url,
+            **kwargs,
+        )
 
     async def get_version(
         self, image_name: ImageName, **kwargs
@@ -889,8 +1035,17 @@ class DockerRegistryClientAsync:
             ),
         )
         client_session = await self._get_client_session()
+        proxy = await self._get_proxy(
+            endpoint=image_name.resolve_endpoint(), protocol=protocol
+        )
         return await client_session.head(
-            headers=headers, url=url, allow_redirects=True, **kwargs
+            allow_redirects=True,
+            headers=headers,
+            proxy=proxy,
+            proxy_auth=self.proxy_auth,
+            ssl=self.ssl,
+            url=url,
+            **kwargs,
         )
 
     async def head_blob(
@@ -958,7 +1113,17 @@ class DockerRegistryClientAsync:
         )
         url = f"{protocol}://{image_name.resolve_endpoint()}/v2/{image_name.resolve_image()}/manifests/{identifier}"
         client_session = await self._get_client_session()
-        return await client_session.head(headers=headers, url=url, **kwargs)
+        proxy = await self._get_proxy(
+            endpoint=image_name.resolve_endpoint(), protocol=protocol
+        )
+        return await client_session.head(
+            headers=headers,
+            proxy=proxy,
+            proxy_auth=self.proxy_auth,
+            ssl=self.ssl,
+            url=url,
+            **kwargs,
+        )
 
     async def head_manifest(
         self, image_name: ImageName, *, accept: str = None, **kwargs
@@ -1007,6 +1172,7 @@ class DockerRegistryClientAsync:
             The underlying client response.
         """
         kwargs.pop("protocol", None)
+        protocol = DockerRegistryClientAsync._get_protocol_from_blob_upload(location)
         image_name = DockerRegistryClientAsync._get_image_name_from_blob_upload(
             location
         )
@@ -1020,8 +1186,16 @@ class DockerRegistryClientAsync:
         if offset is not None:
             headers["Content-Range"] = f"{offset}-{offset + len(data) - 1}"
         client_session = await self._get_client_session()
+        proxy = await self._get_proxy(
+            endpoint=image_name.resolve_endpoint(), protocol=protocol
+        )
         return await client_session.patch(
-            headers=headers, data=data, url=location, **kwargs
+            headers=headers,
+            data=data,
+            proxy=proxy,
+            proxy_auth=self.proxy_auth,
+            url=location,
+            **kwargs,
         )
 
     async def patch_blob_upload(
@@ -1137,8 +1311,18 @@ class DockerRegistryClientAsync:
         elif digest:
             params["digest"] = digest
         client_session = await self._get_client_session()
+        proxy = await self._get_proxy(
+            endpoint=image_name.resolve_endpoint(), protocol=protocol
+        )
         return await client_session.post(
-            data=data, headers=headers, params=params, url=url, **kwargs
+            data=data,
+            headers=headers,
+            params=params,
+            proxy=proxy,
+            proxy_auth=self.proxy_auth,
+            ssl=self.ssl,
+            url=url,
+            **kwargs,
         )
 
     async def post_blob(
@@ -1215,6 +1399,7 @@ class DockerRegistryClientAsync:
             The underlying client response.
         """
         kwargs.pop("protocol", None)
+        protocol = DockerRegistryClientAsync._get_protocol_from_blob_upload(location)
         image_name = DockerRegistryClientAsync._get_image_name_from_blob_upload(
             location
         )
@@ -1227,8 +1412,17 @@ class DockerRegistryClientAsync:
         )
         params = {"digest": digest}
         client_session = await self._get_client_session()
+        proxy = await self._get_proxy(
+            endpoint=image_name.resolve_endpoint(), protocol=protocol
+        )
         return await client_session.put(
-            data=data, headers=headers, params=params, url=location, **kwargs
+            data=data,
+            headers=headers,
+            params=params,
+            proxy=proxy,
+            proxy_auth=self.proxy_auth,
+            url=location,
+            **kwargs,
         )
 
     async def put_blob_upload(
@@ -1350,8 +1544,17 @@ class DockerRegistryClientAsync:
         )
         url = f"{protocol}://{image_name.resolve_endpoint()}/v2/{image_name.resolve_image()}/manifests/{identifier}"
         client_session = await self._get_client_session()
+        proxy = await self._get_proxy(
+            endpoint=image_name.resolve_endpoint(), protocol=protocol
+        )
         return await client_session.put(
-            headers=headers, data=manifest, url=url, **kwargs
+            headers=headers,
+            data=manifest,
+            proxy=proxy,
+            proxy_auth=self.proxy_auth,
+            ssl=self.ssl,
+            url=url,
+            **kwargs,
         )
 
     async def put_manifest(

@@ -11,208 +11,79 @@ import logging
 
 from http import HTTPStatus
 from pathlib import Path
-from typing import Any, cast, Dict, Generator, TypedDict
+from ssl import create_default_context
 
 import aiofiles
 import pytest
 
+from aiohttp.helpers import BasicAuth
 from pytest_docker_registry_fixtures import (
     DockerRegistrySecure,
-    ImageName as PDRFImageName,
-    replicate_manifest_list,
 )
+from pytest_docker_squid_fixtures import SquidSecure
 from docker_registry_client_async import (
-    DockerAuthentication,
     DockerMediaTypes,
     DockerRegistryClientAsync,
     FormattedSHA256,
     ImageName,
-    Indices,
-    Manifest,
     MediaTypes,
 )
 
-from .testutils import get_test_data_path, hash_file
+from .test_dockerregistryclientasync import (
+    credentials_store_path,
+    get_identifier_map,
+    get_manifest_json,
+    get_test_data,
+    known_binary_data,
+    pytestmark as dockerregistryclientasync_pytestmark,
+    replicate_manifest_lists,
+    TypingGetBinaryData,
+    TypingKnownGoodImage,
+)
+from .testutils import hash_file
 
-pytestmark = [
-    pytest.mark.asyncio,
-    pytest.mark.filterwarnings("ignore::DeprecationWarning:aiohttp.*:"),
-    # Note: * The implicit "/library" namespace for DockerHub creates an asymmetry with local v2 registries.
-    #         Reference: https://github.com/openshift/origin/issues/6711
-    #         Compensate by specifying the namespace explicitly here, and it get_test_data().
-    #       * Order of replication should be manifests, manifest lists, then tags.
-    pytest.mark.push_image(
-        # "library/busybox:1.30.1",
-        "library/busybox@sha256:4fe8827f51a5e11bb83afa8227cbccb402df840d32c6b633b7ad079bc8144100",
-        "library/busybox@sha256:abc043b5132f825e44eefffc35535b1f24bd3f1bb60b11943863563a46795fdc",
-        "library/busybox@sha256:07717dd5f074de0cf4f7ca8f635cb63aef63d789f15a22ab482a3d27a0a1f881",
-        "library/busybox@sha256:8dfe92e22300734a185375b6316d01aa1a2b0623d425a5e6e406771ba5642bf1",
-        "library/busybox@sha256:3bdba83255bf7c575e31e129b2ddf1c0c32382e112cb051af6c5143c24a5ddbd",
-        "library/busybox@sha256:bb87f507b42a6efe6f1d5382c826f914673a065f4d777b54b52f5414d688837a",
-        "library/busybox@sha256:a09f03056efb5d3facb5077a9e58e83e9bba74ad4d343b2afa92c70b5ae01e2b",
-        "library/busybox@sha256:0b671b6a323d86aa6165883f698b557ca257c3a3ffa1e3152ffb6467e7ac11b3",
-        "library/busybox@sha256:4b6ad3a68d34da29bf7c8ccb5d355ba8b4babcad1f99798204e7abb43e54ee3d",  # ManifestList
-        # "library/python:3.7.2-slim-stretch",
-        "library/python@sha256:0005ba40bf87e486d7061ca0112123270e4a6088b5071223c8d467db3dbba908",
-        "library/python@sha256:09001905f918a977427cc6931a1cac84a8645b1ac2011fd3f40f625daf9a7fb1",
-        "library/python@sha256:2d127b64fbb7a58ee8eb2c321f1bbd14548ab3191009cca7845b81155c9067bf",
-        "library/python@sha256:59768566a74724d0feeca46cf4f21fd73850b56b8cbbc9dc46ef2f0e179064c5",
-        "library/python@sha256:7505b822f9430bb8887037085e8b40d88ee02a424c075137f7d5b148a9e7131d",
-        "library/python@sha256:de66a6835cfa722611fad3111edad211a66b489fd0a74db67487d860001fdc0c",
-        "library/python@sha256:7d925740cfb767f08105b764b8126e29cd3bb6654a759aad09929206644c7bac",
-        "library/python@sha256:78320634b63efb52f591a7d69d5a50076ce76e7b72c4b45c1e4ddad90c39870a",  # ManifestList
-    ),
-]
+pytestmark = dockerregistryclientasync_pytestmark
 
 LOGGER = logging.getLogger(__name__)
 
-
-class TypingGetBinaryData(TypedDict):
-    # pylint: disable=missing-class-docstring
-    data: bytes
-    digest: FormattedSHA256
-
-
-class TypingGetTestDataLocal(TypedDict):
-    # pylint: disable=missing-class-docstring
-    image: str
-    tag: str
-    digests: Dict[str, FormattedSHA256]
-
-
-class TypingGetManifest(TypedDict):
-    # pylint: disable=missing-class-docstring
-    image_name: ImageName
-    manifest: Manifest
-
-
-class TypingGetManifestJson(TypingGetManifest):
-    # pylint: disable=missing-class-docstring
-    manifest_json: Any
-
-
-class TypingKnownGoodImage(TypingGetTestDataLocal):
-    # pylint: disable=missing-class-docstring
-    image_name: ImageName
-
-
-def get_binary_data() -> Generator[TypingGetBinaryData, None, None]:
-    """Binary test data."""
-    blocks = [b'{"abcdefghijklmnopqrstuvwxyz": "0123456789"}']
-    for block in blocks:
-        yield {"data": block, "digest": FormattedSHA256.calculate(block)}
-
-
-def get_identifier_map(known_good_image: TypingKnownGoodImage) -> Dict[ImageName, str]:
-    """Constructs an identifier to media type mapping."""
-    identifier_map = {}
-    for media_type in known_good_image["digests"].keys():
-        identifier_map[
-            ImageName.parse(f"{known_good_image['image']}:{known_good_image['tag']}")
-        ] = media_type
-        if media_type != DockerMediaTypes.DISTRIBUTION_MANIFEST_V1_SIGNED:
-            digest = known_good_image["digests"][media_type]
-            identifier_map[
-                ImageName.parse(f"{known_good_image['image']}@{digest}")
-            ] = media_type
-            identifier_map[
-                ImageName.parse(
-                    f"{known_good_image['image']}:{known_good_image['tag']}@{digest}"
-                )
-            ] = media_type
-    return identifier_map
-
-
-async def get_manifest(
-    docker_registry_client_async: DockerRegistryClientAsync,
-    known_good_image: TypingKnownGoodImage,
-) -> TypingGetManifest:
-    """Retrieves a distribution manifest v2 for a given 'known good' image."""
-    media_type = DockerMediaTypes.DISTRIBUTION_MANIFEST_V2
-    manifest_digest = known_good_image["digests"][media_type]
-    image_name = ImageName.parse(f"{known_good_image['image']}@{manifest_digest}")
-
-    LOGGER.debug("Retrieving manifest for: %s (%s) ...", image_name, media_type)
-    response = await docker_registry_client_async.get_manifest(
-        image_name, accept=media_type
-    )
-    manifest = response["manifest"]
-    assert manifest.get_media_type() == media_type
-    assert manifest.get_digest() == manifest_digest
-    return {"image_name": image_name, "manifest": manifest}
-
-
-async def get_manifest_json(
-    docker_registry_client_async: DockerRegistryClientAsync,
-    known_good_image: TypingKnownGoodImage,
-) -> TypingGetManifestJson:
-    """Retrieves a distribution manifest v2 for a given 'known good' image."""
-    response = await get_manifest(docker_registry_client_async, known_good_image)
-    response = cast(TypingGetManifestJson, response)
-    response["manifest_json"] = response["manifest"].get_json()
-    return response
-
-
-def get_test_data() -> Generator[TypingGetTestDataLocal, None, None]:
-    """Dynamically initializes test data for a local mutable registry."""
-    images = [
-        {
-            "image": "library/busybox",
-            "tag": "1.30.1",
-            "digests": {
-                # Note: Extracted 4fe88... from the manifest list for 'amd64'.
-                DockerMediaTypes.DISTRIBUTION_MANIFEST_V2: FormattedSHA256(
-                    "4fe8827f51a5e11bb83afa8227cbccb402df840d32c6b633b7ad079bc8144100"
-                ),
-                # Note: Extracted 4b6ad... from the 'RepoDigests' field (docker-inspect), after pulling by tag.
-                DockerMediaTypes.DISTRIBUTION_MANIFEST_LIST_V2: FormattedSHA256(
-                    "4b6ad3a68d34da29bf7c8ccb5d355ba8b4babcad1f99798204e7abb43e54ee3d"
-                ),
-            },
-            "tag_resolves_to_manifest_list": True,
-        },
-        {
-            "image": "library/python",
-            "tag": "3.7.2-slim-stretch",
-            "digests": {
-                DockerMediaTypes.DISTRIBUTION_MANIFEST_V2: FormattedSHA256(
-                    "0005ba40bf87e486d7061ca0112123270e4a6088b5071223c8d467db3dbba908"
-                ),
-                DockerMediaTypes.DISTRIBUTION_MANIFEST_LIST_V2: FormattedSHA256(
-                    "78320634b63efb52f591a7d69d5a50076ce76e7b72c4b45c1e4ddad90c39870a"
-                ),
-            },
-            "tag_resolves_to_manifest_list": True,
-        },
-    ]
-    for image in images:
-        yield image
-
-
-@pytest.fixture
-def credentials_store_path(request) -> Path:
-    """Retrieves the path of the credentials store to use for testing."""
-    return get_test_data_path(request, "credentials_store.json")
+# Bug Fix: https://github.com/crashvb/docker-registry-client-async/issues/24
+#
+# Right now this is known to leave a nasty "Fatal error on SSL transport" error
+# at the end of the test execution; however, without this we cannot test using
+# a TLS-in-TLS proxy ...
+setattr(asyncio.sslproto._SSLProtocolTransport, "_start_tls_compatible", True)
 
 
 @pytest.fixture
 # HACK: Invoke replicate_manifest_list fixture to tell PDRF about the manifest lists we use for testing ...
-async def docker_registry_client_async(
+async def docker_registry_client_async_proxy(
     credentials_store_path: Path,
     docker_registry_secure: DockerRegistrySecure,
+    squid_secure: SquidSecure,
     replicate_manifest_lists,
 ) -> DockerRegistryClientAsync:
     # pylint: disable=unused-argument
     """Provides a DockerRegistryClientAsync instance."""
     # Do not use caching; get a new instance for each test
+    ssl_context = create_default_context(
+        cadata=squid_secure.certs.ca_certificate.read_text("utf-8")
+        + docker_registry_secure.certs.ca_certificate.read_text("utf-8")
+    )
     async with DockerRegistryClientAsync(
-        credentials_store=credentials_store_path, ssl=docker_registry_secure.ssl_context
+        credentials_store=credentials_store_path, ssl=ssl_context
     ) as docker_registry_client_async:
         credentials = docker_registry_secure.auth_header["Authorization"].split()[1]
-        await docker_registry_client_async.add_credentials(
-            docker_registry_secure.endpoint, credentials
+        for name in [
+            docker_registry_secure.endpoint,
+            docker_registry_secure.endpoint_name,
+        ]:
+            await docker_registry_client_async.add_credentials(name, credentials)
+        docker_registry_client_async.proxies[
+            "https"
+        ] = f"https://{squid_secure.endpoint}/"
+        docker_registry_client_async.proxy_auth = BasicAuth(
+            login=squid_secure.username, password=squid_secure.password
         )
-
         yield docker_registry_client_async
 
 
@@ -225,19 +96,16 @@ def event_loop():
     loop.close()
 
 
-@pytest.fixture(params=get_binary_data())
-def known_binary_data(request) -> TypingGetBinaryData:
-    """Provides 'known' binary data."""
-    return request.param
-
-
 @pytest.fixture(params=get_test_data())
-def known_good_image(
+def known_good_image_proxy(
     docker_registry_secure: DockerRegistrySecure, request
 ) -> TypingKnownGoodImage:
     """Provides 'known good' metadata for a local image that can be modified."""
     image_name = ImageName.parse(request.param["image"])
-    image_name.endpoint = docker_registry_secure.endpoint
+    # Because the squid fixture is also running inside of docker-compose, it will be issued separate network stacks and
+    # trying to resolve the registry (HTTP CONNECT) using 127.0.0.1 as the endpoint address will not work. Instead, use
+    # the docker-compose default network, and the internal service port.
+    image_name.endpoint = docker_registry_secure.endpoint_name
     request.param["image"] = str(image_name)
 
     manifest_digest = request.param["digests"][
@@ -250,308 +118,31 @@ def known_good_image(
     return request.param
 
 
-@pytest.fixture(scope="session")
-async def replicate_manifest_lists(docker_registry_secure: DockerRegistrySecure):
-    """Replicates manifests lists to the secure docker registry for testing."""
-    # pylint: disable=protected-access
-    LOGGER.debug(
-        "Replicating manifest lists into %s ...", docker_registry_secure.service_name
-    )
-    # Do not use DRCA from the fixture here, as we need "real" credentials ...
-    async with DockerRegistryClientAsync() as docker_registry_client_async:
-        for image in get_test_data():
-            if "tag_resolves_to_manifest_list" not in image:
-                continue
-
-            digest = image["digests"][DockerMediaTypes.DISTRIBUTION_MANIFEST_LIST_V2]
-            image_name = ImageName(image["image"], digest=digest, tag=image["tag"])
-            LOGGER.debug("- %s", image_name)
-
-            scope = DockerAuthentication.SCOPE_REPOSITORY_PULL_PATTERN.format(
-                image_name.image
-            )
-            auth_header_src = await docker_registry_client_async._get_request_headers(
-                image_name, scope=scope
-            )
-            if not auth_header_src:
-                LOGGER.warning(
-                    "Unable to retrieve authentication headers for: %s", image_name
-                )
-
-            pdrf_image_name = PDRFImageName(
-                image_name.resolve_image(),
-                digest=image_name.resolve_digest(),
-                endpoint=image_name.resolve_endpoint(),
-                tag=image_name.resolve_tag(),
-            )
-            try:
-                replicate_manifest_list(
-                    pdrf_image_name,
-                    docker_registry_secure.endpoint,
-                    auth_header_dest=docker_registry_secure.auth_header,
-                    auth_header_src=auth_header_src,
-                    ssl_context_dest=docker_registry_secure.ssl_context,
-                )
-            except Exception as exception:  # pylint: disable=broad-except
-                LOGGER.warning(
-                    "Unable to replicate manifest list '%s': %s",
-                    image_name,
-                    exception,
-                    exc_info=True,
-                )
-
-
-async def test___init__(docker_registry_client_async: DockerRegistryClientAsync):
-    """Test that the docker registry client can be instantiated."""
-    assert docker_registry_client_async
-
-
-async def test_add_credentials(docker_registry_client_async: DockerRegistryClientAsync):
-    """Test that credentials can be assigned."""
-    endpoint = "endpoint"
-    credentials = "credentials"
-    await docker_registry_client_async.add_credentials(endpoint, credentials)
-    result = await docker_registry_client_async._get_credentials(endpoint)
-    assert result == credentials
-
-
-@pytest.mark.online
-async def test__get_auth_token_dockerhub():
-    """Test that an authentication token can be retrieved for index.docker.io."""
-    endpoint = Indices.DOCKERHUB
-    # Note: Using default credentials store from the test environment
-    async with DockerRegistryClientAsync() as docker_registry_client_async:
-        credentials = await docker_registry_client_async._get_credentials(endpoint)
-        if credentials:
-            token = await docker_registry_client_async._get_auth_token(
-                credentials=credentials,
-                endpoint=endpoint,
-                scope=DockerAuthentication.SCOPE_REPOSITORY_PULL_PATTERN.format(
-                    "busybox"
-                ),
-            )
-            assert len(token) > 100
-        else:
-            pytest.skip(f"Unable to retrieve credentials for: {endpoint}")
-
-
-@pytest.mark.online
-async def test__get_auth_token_dockerhub_anonymous():
-    """Test that an authentication token can be retrieved for index.docker.io anonymously."""
-    # Note: Using default credentials store from the test environment
-    async with DockerRegistryClientAsync() as docker_registry_client_async:
-        token = await docker_registry_client_async._get_auth_token(
-            endpoint=Indices.DOCKERHUB,
-            scope=DockerAuthentication.SCOPE_REPOSITORY_PULL_PATTERN.format("busybox"),
-        )
-        assert len(token) > 100
-
-
-@pytest.mark.online
-async def test__get_auth_token_quay():
-    """Test that an authentication token can be retrieved for index.docker.io."""
-    endpoint = Indices.QUAY
-    # Note: Using default credentials store from the test environment
-    async with DockerRegistryClientAsync() as docker_registry_client_async:
-        credentials = await docker_registry_client_async._get_credentials(endpoint)
-        if credentials:
-            token = await docker_registry_client_async._get_auth_token(
-                credentials=credentials,
-                endpoint=endpoint,
-                scope=DockerAuthentication.SCOPE_REPOSITORY_PULL_PATTERN.format(
-                    "crio/busybox"
-                ),
-            )
-            assert len(token) > 100
-        else:
-            pytest.skip(f"Unable to retrieve credentials for: {endpoint}")
-
-
-async def test__get_client_session(
-    docker_registry_client_async: DockerRegistryClientAsync,
-):
-    """Test that the client session can be retrieved."""
-    assert await docker_registry_client_async._get_client_session()
-
-
-@pytest.mark.parametrize(
-    "endpoint,auth",
-    [
-        ("endpoint:port", "dXNlcm5hbWU6cGFzc3dvcmQ="),
-        ("endpoint2:port2", "dXNlcm5hbWUyOnBhc3N3b3JkMg=="),
-    ],
-)
-async def test__get_credentials(
-    docker_registry_client_async: DockerRegistryClientAsync, endpoint: str, auth: str
-):
-    """Test that credentials can be retrieved."""
-    result = await docker_registry_client_async._get_credentials(endpoint)
-    assert result == auth
-
-
-async def test__get_proxy(docker_registry_client_async: DockerRegistryClientAsync):
-    """Test that a proxy can be retrieved."""
-    endpoints = ["endpoint0.com", "endpoint1.com", "127.0.0.1"]
-    proxies = {
-        "http": "http://http-proxy.com:1234",
-        "https": "https://https-proxy.com:2345",
-    }
-
-    for protocol, url in proxies.items():
-        for endpoint in endpoints:
-            # Empty
-            docker_registry_client_async.proxies = {}
-            docker_registry_client_async.proxy_no = []
-            result = await docker_registry_client_async._get_proxy(
-                endpoint=endpoint, protocol=protocol
-            )
-            assert result is None
-
-            # http, no https, not in no_proxy
-            docker_registry_client_async.proxies = {"http": proxies["http"]}
-            docker_registry_client_async.proxy_no = []
-            result = await docker_registry_client_async._get_proxy(
-                endpoint=endpoint, protocol=protocol
-            )
-            if protocol == "http":
-                assert result == proxies["http"]
-            else:
-                assert result is None
-
-            # no http, https, not in no_proxy
-            docker_registry_client_async.proxies = {"https": proxies["https"]}
-            docker_registry_client_async.proxy_no = []
-            result = await docker_registry_client_async._get_proxy(
-                endpoint=endpoint, protocol=protocol
-            )
-            if protocol == "https":
-                assert result == proxies["https"]
-            else:
-                assert result is None
-
-            # http, https, not in no_proxy
-            docker_registry_client_async.proxies = proxies
-            docker_registry_client_async.proxy_no = []
-            result = await docker_registry_client_async._get_proxy(
-                endpoint=endpoint, protocol=protocol
-            )
-            assert result == url
-
-            # http, no https, in no_proxy
-            docker_registry_client_async.proxies = {"http": proxies["http"]}
-            docker_registry_client_async.proxy_no = [endpoint]
-            result = await docker_registry_client_async._get_proxy(
-                endpoint=endpoint, protocol=protocol
-            )
-            assert result is None
-
-            # no http, https, in no_proxy
-            docker_registry_client_async.proxies = {"https": proxies["https"]}
-            docker_registry_client_async.proxy_no = [endpoint]
-            result = await docker_registry_client_async._get_proxy(
-                endpoint=endpoint, protocol=protocol
-            )
-            assert result is None
-
-            # http, https, in no_proxy
-            docker_registry_client_async.proxies = proxies
-            docker_registry_client_async.proxy_no = [endpoint]
-            result = await docker_registry_client_async._get_proxy(
-                endpoint=endpoint, protocol=protocol
-            )
-            assert result is None
-
-            # http, https, in no_proxy (full list)
-            docker_registry_client_async.proxies = proxies
-            docker_registry_client_async.proxy_no = endpoints
-            result = await docker_registry_client_async._get_proxy(
-                endpoint=endpoint, protocol=protocol
-            )
-            assert result is None
-            # ... with something different ...
-            result = await docker_registry_client_async._get_proxy(
-                endpoint="foobar", protocol=protocol
-            )
-            assert result == url
-
-
-@pytest.mark.parametrize(
-    "endpoint,auth",
-    [
-        ("endpoint:port", "dXNlcm5hbWU6cGFzc3dvcmQ="),
-        ("endpoint2:port2", "dXNlcm5hbWUyOnBhc3N3b3JkMg=="),
-    ],
-)
-async def test__get_request_headers_basic_auth(
-    docker_registry_client_async: DockerRegistryClientAsync, endpoint: str, auth: str
-):
-    """Test request headers retrieval."""
-    image_name = ImageName("", endpoint=endpoint)
-    existing_header = "existing-header"
-    headers = await docker_registry_client_async._get_request_headers(
-        image_name, {existing_header: "1"}
-    )
-    assert auth in headers["Authorization"]
-    assert existing_header in headers
-
-
-@pytest.mark.online
-async def test__get_request_headers_token_anonymous():
-    """Test request headers retrieval."""
-    image_name = ImageName("", endpoint=Indices.DOCKERHUB)
-    existing_header = "existing-header"
-    async with DockerRegistryClientAsync() as docker_registry_client_async:
-        headers = await docker_registry_client_async._get_request_headers(
-            image_name, {existing_header: "1"}
-        )
-        assert headers["Authorization"].startswith("Bearer ")
-        assert len(headers["Authorization"]) > 100
-        assert existing_header in headers
-
-
-@pytest.mark.parametrize(
-    "endpoint,auth",
-    [
-        ("endpoint:port", "dXNlcm5hbWU6cGFzc3dvcmQ="),
-        ("endpoint2:port2", "dXNlcm5hbWUyOnBhc3N3b3JkMg=="),
-    ],
-)
-async def test__load_credentials(
-    docker_registry_client_async: DockerRegistryClientAsync, endpoint: str, auth: str
-):
-    """Test that credentials can be loaded from the credentials store."""
-    await docker_registry_client_async._load_credentials()
-    found = False
-    for key in docker_registry_client_async.credentials:
-        if endpoint in key:
-            assert docker_registry_client_async.credentials[key]["auth"] == auth
-            found = True
-    assert found
-
-
 @pytest.mark.online_deletion
-async def test__delete_blob(
-    docker_registry_client_async: DockerRegistryClientAsync,
+async def test__delete_blob_proxy(
+    docker_registry_client_async_proxy: DockerRegistryClientAsync,
     known_binary_data: TypingGetBinaryData,
-    known_good_image: TypingKnownGoodImage,
+    known_good_image_proxy: TypingKnownGoodImage,
 ):
     """Test that an image blob upload can be completed."""
     manifest_data = await get_manifest_json(
-        docker_registry_client_async, known_good_image
+        docker_registry_client_async_proxy, known_good_image_proxy
     )
     manifest_data["image_name"].image += __name__
 
     LOGGER.debug("Initiating blob upload: %s ...", manifest_data["image_name"])
-    response = await docker_registry_client_async.post_blob(manifest_data["image_name"])
-    response = await docker_registry_client_async.patch_blob_upload(
+    response = await docker_registry_client_async_proxy.post_blob(
+        manifest_data["image_name"]
+    )
+    response = await docker_registry_client_async_proxy.patch_blob_upload(
         response["location"], known_binary_data["data"]
     )
-    await docker_registry_client_async.put_blob_upload(
+    await docker_registry_client_async_proxy.put_blob_upload(
         response["location"], known_binary_data["digest"]
     )
 
     LOGGER.debug("Deleting blob: %s ...", known_binary_data["digest"])
-    client_response = await docker_registry_client_async._delete_blob(
+    client_response = await docker_registry_client_async_proxy._delete_blob(
         manifest_data["image_name"], known_binary_data["digest"]
     )
     assert client_response
@@ -563,27 +154,29 @@ async def test__delete_blob(
 
 @pytest.mark.online_deletion
 async def test_delete_blob(
-    docker_registry_client_async: DockerRegistryClientAsync,
+    docker_registry_client_async_proxy: DockerRegistryClientAsync,
     known_binary_data: TypingGetBinaryData,
-    known_good_image: TypingKnownGoodImage,
+    known_good_image_proxy: TypingKnownGoodImage,
 ):
     """Test that an image blob upload can be completed."""
     manifest_data = await get_manifest_json(
-        docker_registry_client_async, known_good_image
+        docker_registry_client_async_proxy, known_good_image_proxy
     )
     manifest_data["image_name"].image += __name__
 
     LOGGER.debug("Initiating blob upload: %s ...", manifest_data["image_name"])
-    response = await docker_registry_client_async.post_blob(manifest_data["image_name"])
-    response = await docker_registry_client_async.patch_blob_upload(
+    response = await docker_registry_client_async_proxy.post_blob(
+        manifest_data["image_name"]
+    )
+    response = await docker_registry_client_async_proxy.patch_blob_upload(
         response["location"], known_binary_data["data"]
     )
-    await docker_registry_client_async.put_blob_upload(
+    await docker_registry_client_async_proxy.put_blob_upload(
         response["location"], known_binary_data["digest"]
     )
 
     LOGGER.debug("Deleting blob: %s ...", known_binary_data["digest"])
-    response = await docker_registry_client_async.delete_blob(
+    response = await docker_registry_client_async_proxy.delete_blob(
         manifest_data["image_name"], known_binary_data["digest"]
     )
     assert all(x in response for x in ["client_response", "result"])
@@ -592,25 +185,27 @@ async def test_delete_blob(
 
 @pytest.mark.online_deletion
 async def test__delete_blob_upload(
-    docker_registry_client_async: DockerRegistryClientAsync,
+    docker_registry_client_async_proxy: DockerRegistryClientAsync,
     known_binary_data: TypingGetBinaryData,
-    known_good_image: TypingKnownGoodImage,
+    known_good_image_proxy: TypingKnownGoodImage,
 ):
     """Test that an image blob upload can be completed."""
     manifest_data = await get_manifest_json(
-        docker_registry_client_async, known_good_image
+        docker_registry_client_async_proxy, known_good_image_proxy
     )
     manifest_data["image_name"].image += __name__
 
     LOGGER.debug("Initiating blob upload: %s ...", manifest_data["image_name"])
-    response = await docker_registry_client_async.post_blob(manifest_data["image_name"])
-    response = await docker_registry_client_async.patch_blob_upload(
+    response = await docker_registry_client_async_proxy.post_blob(
+        manifest_data["image_name"]
+    )
+    response = await docker_registry_client_async_proxy.patch_blob_upload(
         response["location"], known_binary_data["data"]
     )
 
     # Don't complete the blob upload (by sending a PUT), and delete it ...
     LOGGER.debug("Deleting blob upload: %s ...", response["location"])
-    client_response = await docker_registry_client_async._delete_blob_upload(
+    client_response = await docker_registry_client_async_proxy._delete_blob_upload(
         response["location"]
     )
     assert client_response
@@ -620,24 +215,26 @@ async def test__delete_blob_upload(
 
 @pytest.mark.online_deletion
 async def test_delete_blob_upload(
-    docker_registry_client_async: DockerRegistryClientAsync,
+    docker_registry_client_async_proxy: DockerRegistryClientAsync,
     known_binary_data: TypingGetBinaryData,
-    known_good_image: TypingKnownGoodImage,
+    known_good_image_proxy: TypingKnownGoodImage,
 ):
     """Test that an image blob upload can be completed."""
     manifest_data = await get_manifest_json(
-        docker_registry_client_async, known_good_image
+        docker_registry_client_async_proxy, known_good_image_proxy
     )
     manifest_data["image_name"].image += __name__
 
     LOGGER.debug("Initiating blob upload: %s ...", manifest_data["image_name"])
-    response = await docker_registry_client_async.post_blob(manifest_data["image_name"])
-    response = await docker_registry_client_async.patch_blob_upload(
+    response = await docker_registry_client_async_proxy.post_blob(
+        manifest_data["image_name"]
+    )
+    response = await docker_registry_client_async_proxy.patch_blob_upload(
         response["location"], known_binary_data["data"]
     )
 
     # Don't complete the blob upload (by sending a PUT), and delete it ...
-    response = await docker_registry_client_async.delete_blob_upload(
+    response = await docker_registry_client_async_proxy.delete_blob_upload(
         response["location"]
     )
     assert all(x in response for x in ["client_response", "result"])
@@ -646,12 +243,12 @@ async def test_delete_blob_upload(
 
 @pytest.mark.online_deletion
 async def test__delete_manifest(
-    docker_registry_client_async: DockerRegistryClientAsync,
-    known_good_image: TypingKnownGoodImage,
+    docker_registry_client_async_proxy: DockerRegistryClientAsync,
+    known_good_image_proxy: TypingKnownGoodImage,
 ):
     """Test that the image manifests can be stored."""
     manifest_data = await get_manifest_json(
-        docker_registry_client_async, known_good_image
+        docker_registry_client_async_proxy, known_good_image_proxy
     )
 
     # Modify the manifest ...
@@ -667,24 +264,28 @@ async def test__delete_manifest(
     if image_name.tag:
         image_name.tag += __name__
     LOGGER.debug("Storing manifest: %s (%s) ...", image_name, manifest.get_digest())
-    response = await docker_registry_client_async.put_manifest(image_name, manifest)
+    response = await docker_registry_client_async_proxy.put_manifest(
+        image_name, manifest
+    )
     assert response["digest"] == manifest.get_digest()
 
     # ... then delete it ...
     LOGGER.debug("Deleting manifest: %s ...", image_name)
-    client_response = await docker_registry_client_async._delete_manifest(image_name)
+    client_response = await docker_registry_client_async_proxy._delete_manifest(
+        image_name
+    )
     assert client_response
     assert client_response.status == HTTPStatus.ACCEPTED
 
 
 @pytest.mark.online_deletion
 async def test_delete_manifest(
-    docker_registry_client_async: DockerRegistryClientAsync,
-    known_good_image: TypingKnownGoodImage,
+    docker_registry_client_async_proxy: DockerRegistryClientAsync,
+    known_good_image_proxy: TypingKnownGoodImage,
 ):
     """Test that the image manifests can be stored."""
     manifest_data = await get_manifest_json(
-        docker_registry_client_async, known_good_image
+        docker_registry_client_async_proxy, known_good_image_proxy
     )
 
     # Modify the manifest ...
@@ -700,24 +301,26 @@ async def test_delete_manifest(
     if image_name.tag:
         image_name.tag += __name__
     LOGGER.debug("Storing manifest: %s (%s) ...", image_name, manifest.get_digest())
-    response = await docker_registry_client_async.put_manifest(image_name, manifest)
+    response = await docker_registry_client_async_proxy.put_manifest(
+        image_name, manifest
+    )
     assert response["digest"] == manifest.get_digest()
 
     # ... then delete it ...
     LOGGER.debug("Deleting manifest: %s ...", image_name)
-    response = await docker_registry_client_async.delete_manifest(image_name)
+    response = await docker_registry_client_async_proxy.delete_manifest(image_name)
     assert all(x in response for x in ["client_response", "result"])
     assert response["result"]
 
 
 @pytest.mark.online
 async def test__get_blob_config(
-    docker_registry_client_async: DockerRegistryClientAsync,
-    known_good_image: TypingKnownGoodImage,
+    docker_registry_client_async_proxy: DockerRegistryClientAsync,
+    known_good_image_proxy: TypingKnownGoodImage,
 ):
     """Test that the image blobs (image configurations) can be retrieved."""
     manifest_data = await get_manifest_json(
-        docker_registry_client_async, known_good_image
+        docker_registry_client_async_proxy, known_good_image_proxy
     )
     config = manifest_data["manifest_json"]["config"]
     assert all(x in config for x in ["digest", "mediaType", "size"])
@@ -726,7 +329,7 @@ async def test__get_blob_config(
     LOGGER.debug(
         "Retrieving blob: %s/%s ...", manifest_data["image_name"], config_digest
     )
-    client_response = await docker_registry_client_async._get_blob(
+    client_response = await docker_registry_client_async_proxy._get_blob(
         manifest_data["image_name"], config_digest, accept=config["mediaType"]
     )
     assert client_response
@@ -746,12 +349,12 @@ async def test__get_blob_config(
 
 @pytest.mark.online
 async def test__get_blob_layer(
-    docker_registry_client_async: DockerRegistryClientAsync,
-    known_good_image: TypingKnownGoodImage,
+    docker_registry_client_async_proxy: DockerRegistryClientAsync,
+    known_good_image_proxy: TypingKnownGoodImage,
 ):
     """Test that the image blobs (layers) can be retrieved."""
     manifest_data = await get_manifest_json(
-        docker_registry_client_async, known_good_image
+        docker_registry_client_async_proxy, known_good_image_proxy
     )
     layer = manifest_data["manifest_json"]["layers"][0]
     assert all(x in layer for x in ["digest", "mediaType", "size"])
@@ -760,7 +363,7 @@ async def test__get_blob_layer(
     LOGGER.debug(
         "Retrieving blob: %s/%s ...", manifest_data["image_name"], layer_digest
     )
-    client_response = await docker_registry_client_async._get_blob(
+    client_response = await docker_registry_client_async_proxy._get_blob(
         manifest_data["image_name"], layer_digest, accept=layer["mediaType"]
     )
     assert client_response
@@ -780,12 +383,12 @@ async def test__get_blob_layer(
 
 @pytest.mark.online
 async def test_get_blob(
-    docker_registry_client_async: DockerRegistryClientAsync,
-    known_good_image: TypingKnownGoodImage,
+    docker_registry_client_async_proxy: DockerRegistryClientAsync,
+    known_good_image_proxy: TypingKnownGoodImage,
 ):
     """Test that the image blobs (layers) can be retrieved."""
     manifest_data = await get_manifest_json(
-        docker_registry_client_async, known_good_image
+        docker_registry_client_async_proxy, known_good_image_proxy
     )
     layer = manifest_data["manifest_json"]["layers"][0]
     assert all(x in layer for x in ["digest", "mediaType", "size"])
@@ -794,7 +397,7 @@ async def test_get_blob(
     LOGGER.debug(
         "Retrieving blob: %s/%s ...", manifest_data["image_name"], layer_digest
     )
-    response = await docker_registry_client_async.get_blob(
+    response = await docker_registry_client_async_proxy.get_blob(
         manifest_data["image_name"], layer_digest, accept=layer["mediaType"]
     )
     assert all(x in response for x in ["blob", "client_response"])
@@ -804,13 +407,13 @@ async def test_get_blob(
 
 @pytest.mark.online
 async def test_get_blob_to_disk_async(
-    docker_registry_client_async: DockerRegistryClientAsync,
-    known_good_image: TypingKnownGoodImage,
+    docker_registry_client_async_proxy: DockerRegistryClientAsync,
+    known_good_image_proxy: TypingKnownGoodImage,
     tmp_path: Path,
 ):
     """Test that the image blobs (image configurations) can be retrieved to disk asynchronously."""
     manifest_data = await get_manifest_json(
-        docker_registry_client_async, known_good_image
+        docker_registry_client_async_proxy, known_good_image_proxy
     )
     config = manifest_data["manifest_json"]["config"]
     assert all(x in config for x in ["digest", "mediaType", "size"])
@@ -821,7 +424,7 @@ async def test_get_blob_to_disk_async(
     )
     path = tmp_path.joinpath("blob")
     async with aiofiles.open(path, mode="w+b") as file:
-        response = await docker_registry_client_async.get_blob_to_disk(
+        response = await docker_registry_client_async_proxy.get_blob_to_disk(
             manifest_data["image_name"],
             config_digest,
             file,
@@ -841,13 +444,13 @@ async def test_get_blob_to_disk_async(
 
 @pytest.mark.online
 async def test_get_blob_to_disk_sync(
-    docker_registry_client_async: DockerRegistryClientAsync,
-    known_good_image: TypingKnownGoodImage,
+    docker_registry_client_async_proxy: DockerRegistryClientAsync,
+    known_good_image_proxy: TypingKnownGoodImage,
     tmp_path: Path,
 ):
     """Test that the image blobs (image configurations) can be retrieved to disk synchronously."""
     manifest_data = await get_manifest_json(
-        docker_registry_client_async, known_good_image
+        docker_registry_client_async_proxy, known_good_image_proxy
     )
     config = manifest_data["manifest_json"]["config"]
     assert all(x in config for x in ["digest", "mediaType", "size"])
@@ -858,7 +461,7 @@ async def test_get_blob_to_disk_sync(
     )
     path = tmp_path.joinpath("blob")
     with path.open("w+b") as file:
-        response = await docker_registry_client_async.get_blob_to_disk(
+        response = await docker_registry_client_async_proxy.get_blob_to_disk(
             manifest_data["image_name"],
             config_digest,
             file,
@@ -879,24 +482,26 @@ async def test_get_blob_to_disk_sync(
 
 @pytest.mark.online_modification
 async def test__get_blob_upload(
-    docker_registry_client_async: DockerRegistryClientAsync,
-    known_good_image: TypingKnownGoodImage,
+    docker_registry_client_async_proxy: DockerRegistryClientAsync,
+    known_good_image_proxy: TypingKnownGoodImage,
 ):
     """Test that the status of image blob uploads can be retrieved."""
     manifest_data = await get_manifest_json(
-        docker_registry_client_async, known_good_image
+        docker_registry_client_async_proxy, known_good_image_proxy
     )
     manifest_data["image_name"].image += __name__
 
     LOGGER.debug("Initiating blob upload: %s ...", manifest_data["image_name"])
-    response = await docker_registry_client_async.post_blob(manifest_data["image_name"])
+    response = await docker_registry_client_async_proxy.post_blob(
+        manifest_data["image_name"]
+    )
     assert all(
         x in response
         for x in ["client_response", "docker_upload_uuid", "location", "range"]
     )
 
     LOGGER.debug("Retrieving blob upload: %s ...", response["location"])
-    client_response = await docker_registry_client_async._get_blob_upload(
+    client_response = await docker_registry_client_async_proxy._get_blob_upload(
         response["location"]
     )
     assert client_response
@@ -910,24 +515,28 @@ async def test__get_blob_upload(
 
 @pytest.mark.online_modification
 async def test_get_blob_upload(
-    docker_registry_client_async: DockerRegistryClientAsync,
-    known_good_image: TypingKnownGoodImage,
+    docker_registry_client_async_proxy: DockerRegistryClientAsync,
+    known_good_image_proxy: TypingKnownGoodImage,
 ):
     """Test that the status of image blob uploads can be retrieved."""
     manifest_data = await get_manifest_json(
-        docker_registry_client_async, known_good_image
+        docker_registry_client_async_proxy, known_good_image_proxy
     )
     manifest_data["image_name"].image += __name__
 
     LOGGER.debug("Initiating blob upload: %s ...", manifest_data["image_name"])
-    response = await docker_registry_client_async.post_blob(manifest_data["image_name"])
+    response = await docker_registry_client_async_proxy.post_blob(
+        manifest_data["image_name"]
+    )
     assert all(
         x in response
         for x in ["client_response", "docker_upload_uuid", "location", "range"]
     )
 
     LOGGER.debug("Retrieving blob upload: %s ...", response["location"])
-    response = await docker_registry_client_async.get_blob_upload(response["location"])
+    response = await docker_registry_client_async_proxy.get_blob_upload(
+        response["location"]
+    )
     assert all(x in response for x in ["client_response", "location", "range"])
     assert response["range"] == "0-0"
 
@@ -935,34 +544,36 @@ async def test_get_blob_upload(
 @pytest.mark.online
 # Note: Catalog is disabled for Docker Hub: https://forums.docker.com/t/registry-v2-catalog/45368
 async def test__get_catalog(
-    docker_registry_client_async: DockerRegistryClientAsync,
-    known_good_image: TypingKnownGoodImage,
+    docker_registry_client_async_proxy: DockerRegistryClientAsync,
+    known_good_image_proxy: TypingKnownGoodImage,
 ):
     """Test that the image catalog can be retrieved."""
     LOGGER.debug("Retrieving catalog ...")
-    client_response = await docker_registry_client_async._get_catalog(
-        known_good_image["image_name"]
+    client_response = await docker_registry_client_async_proxy._get_catalog(
+        known_good_image_proxy["image_name"]
     )
     assert client_response
     assert client_response.status == HTTPStatus.OK
 
     catalog = json.loads(await client_response.text())
     assert "repositories" in catalog
-    assert known_good_image["image_name"].resolve_image() in catalog["repositories"]
+    assert (
+        known_good_image_proxy["image_name"].resolve_image() in catalog["repositories"]
+    )
 
 
 @pytest.mark.online
 # Note: Catalog is disabled for Docker Hub: https://forums.docker.com/t/registry-v2-catalog/45368
 async def test_get_catalog(
-    docker_registry_client_async: DockerRegistryClientAsync,
-    known_good_image: TypingKnownGoodImage,
+    docker_registry_client_async_proxy: DockerRegistryClientAsync,
+    known_good_image_proxy: TypingKnownGoodImage,
 ):
     """Test that the image catalog can be retrieved."""
     image_name = ImageName.parse(
-        f"{known_good_image['image']}:{known_good_image['tag']}"
+        f"{known_good_image_proxy['image']}:{known_good_image_proxy['tag']}"
     )
     LOGGER.debug("Retrieving catalog ...")
-    response = await docker_registry_client_async.get_catalog(image_name)
+    response = await docker_registry_client_async_proxy.get_catalog(image_name)
     assert all(x in response for x in ["catalog", "client_response"])
 
     catalog = response["catalog"]
@@ -972,14 +583,14 @@ async def test_get_catalog(
 
 @pytest.mark.online
 async def test__get_manifest(
-    docker_registry_client_async: DockerRegistryClientAsync,
-    known_good_image: TypingKnownGoodImage,
+    docker_registry_client_async_proxy: DockerRegistryClientAsync,
+    known_good_image_proxy: TypingKnownGoodImage,
 ):
     """Test that the image manifests can be retrieved."""
-    identifier_map = get_identifier_map(known_good_image)
+    identifier_map = get_identifier_map(known_good_image_proxy)
     for image_name, media_type in identifier_map.items():
         LOGGER.debug("Retrieving manifest for: %s (%s) ...", image_name, media_type)
-        client_response = await docker_registry_client_async._get_manifest(
+        client_response = await docker_registry_client_async_proxy._get_manifest(
             image_name, accept=media_type
         )
         assert client_response
@@ -999,14 +610,14 @@ async def test__get_manifest(
 
 @pytest.mark.online
 async def test_get_manifest(
-    docker_registry_client_async: DockerRegistryClientAsync,
-    known_good_image: TypingKnownGoodImage,
+    docker_registry_client_async_proxy: DockerRegistryClientAsync,
+    known_good_image_proxy: TypingKnownGoodImage,
 ):
     """Test that the image manifests can be retrieved."""
-    identifier_map = get_identifier_map(known_good_image)
+    identifier_map = get_identifier_map(known_good_image_proxy)
     for image_name, media_type in identifier_map.items():
         LOGGER.debug("Retrieving manifest for: %s (%s) ...", image_name, media_type)
-        response = await docker_registry_client_async.get_manifest(
+        response = await docker_registry_client_async_proxy.get_manifest(
             image_name, accept=media_type
         )
         assert all(x in response for x in ["client_response", "manifest"])
@@ -1045,11 +656,11 @@ async def test_get_manifest(
 async def test_get_manifest_sanity_check():
     """Test that 'python' works against index.docker.io."""
     # Note: Using default credentials store from the test environment
-    async with DockerRegistryClientAsync() as docker_registry_client_async:
+    async with DockerRegistryClientAsync() as docker_registry_client_async_proxy:
         image_name = ImageName.parse("python")
         media_type = DockerMediaTypes.DISTRIBUTION_MANIFEST_V2
         LOGGER.debug("Retrieving manifest for: %s (%s) ...", image_name, media_type)
-        response = await docker_registry_client_async.get_manifest(
+        response = await docker_registry_client_async_proxy.get_manifest(
             image_name, accept=media_type
         )
         assert all(x in response for x in ["client_response", "manifest"])
@@ -1058,17 +669,19 @@ async def test_get_manifest_sanity_check():
 
 @pytest.mark.online
 async def test_get_manifest_to_disk_async(
-    docker_registry_client_async: DockerRegistryClientAsync,
-    known_good_image: TypingKnownGoodImage,
+    docker_registry_client_async_proxy: DockerRegistryClientAsync,
+    known_good_image_proxy: TypingKnownGoodImage,
     tmp_path: Path,
 ):
     """Test that the image manifests can be retrieved to disk asynchronously."""
-    digest = known_good_image["digests"][DockerMediaTypes.DISTRIBUTION_MANIFEST_V2]
-    image_name = ImageName.parse(f"{known_good_image['image']}@{digest}")
+    digest = known_good_image_proxy["digests"][
+        DockerMediaTypes.DISTRIBUTION_MANIFEST_V2
+    ]
+    image_name = ImageName.parse(f"{known_good_image_proxy['image']}@{digest}")
     LOGGER.debug("Retrieving manifest for: %s ...", image_name)
     path = tmp_path.joinpath("manifest.json")
     async with aiofiles.open(path, mode="w+b") as file:
-        response = await docker_registry_client_async.get_manifest_to_disk(
+        response = await docker_registry_client_async_proxy.get_manifest_to_disk(
             image_name, file
         )
     assert response
@@ -1084,17 +697,19 @@ async def test_get_manifest_to_disk_async(
 
 @pytest.mark.online
 async def test_get_manifest_to_disk_sync(
-    docker_registry_client_async: DockerRegistryClientAsync,
-    known_good_image: TypingKnownGoodImage,
+    docker_registry_client_async_proxy: DockerRegistryClientAsync,
+    known_good_image_proxy: TypingKnownGoodImage,
     tmp_path: Path,
 ):
     """Test that the image manifests can be retrieved to disk synchronously."""
-    digest = known_good_image["digests"][DockerMediaTypes.DISTRIBUTION_MANIFEST_V2]
-    image_name = ImageName.parse(f"{known_good_image['image']}@{digest}")
+    digest = known_good_image_proxy["digests"][
+        DockerMediaTypes.DISTRIBUTION_MANIFEST_V2
+    ]
+    image_name = ImageName.parse(f"{known_good_image_proxy['image']}@{digest}")
     LOGGER.debug("Retrieving manifest for: %s ...", image_name)
     path = tmp_path.joinpath("manifest.json")
     with path.open("w+b") as file:
-        response = await docker_registry_client_async.get_manifest_to_disk(
+        response = await docker_registry_client_async_proxy.get_manifest_to_disk(
             image_name, file, file_is_async=False
         )
     assert response
@@ -1110,15 +725,15 @@ async def test_get_manifest_to_disk_sync(
 
 @pytest.mark.online
 async def test__get_tags(
-    docker_registry_client_async: DockerRegistryClientAsync,
-    known_good_image: TypingKnownGoodImage,
+    docker_registry_client_async_proxy: DockerRegistryClientAsync,
+    known_good_image_proxy: TypingKnownGoodImage,
 ):
     """Test that the image tags can be retrieved."""
     image_name = ImageName.parse(
-        f"{known_good_image['image']}:{known_good_image['tag']}"
+        f"{known_good_image_proxy['image']}:{known_good_image_proxy['tag']}"
     )
     LOGGER.debug("Retrieving tags for: %s ...", image_name)
-    client_response = await docker_registry_client_async._get_tags(image_name)
+    client_response = await docker_registry_client_async_proxy._get_tags(image_name)
     assert client_response
     assert client_response.status == HTTPStatus.OK
 
@@ -1130,15 +745,15 @@ async def test__get_tags(
 
 @pytest.mark.online
 async def test_get_tag_list(
-    docker_registry_client_async: DockerRegistryClientAsync,
-    known_good_image: TypingKnownGoodImage,
+    docker_registry_client_async_proxy: DockerRegistryClientAsync,
+    known_good_image_proxy: TypingKnownGoodImage,
 ):
     """Test that the image tags can be retrieved."""
     image_name = ImageName.parse(
-        f"{known_good_image['image']}:{known_good_image['tag']}"
+        f"{known_good_image_proxy['image']}:{known_good_image_proxy['tag']}"
     )
     LOGGER.debug("Retrieving tag list for: %s ...", image_name)
-    response = await docker_registry_client_async.get_tag_list(image_name)
+    response = await docker_registry_client_async_proxy.get_tag_list(image_name)
     assert all(x in response for x in ["client_response", "tags"])
 
     result = False
@@ -1151,15 +766,15 @@ async def test_get_tag_list(
 
 @pytest.mark.online
 async def test_get_tags(
-    docker_registry_client_async: DockerRegistryClientAsync,
-    known_good_image: TypingKnownGoodImage,
+    docker_registry_client_async_proxy: DockerRegistryClientAsync,
+    known_good_image_proxy: TypingKnownGoodImage,
 ):
     """Test that the image tags can be retrieved."""
     image_name = ImageName.parse(
-        f"{known_good_image['image']}:{known_good_image['tag']}"
+        f"{known_good_image_proxy['image']}:{known_good_image_proxy['tag']}"
     )
     LOGGER.debug("Retrieving tags for: %s ...", image_name)
-    response = await docker_registry_client_async.get_tags(image_name)
+    response = await docker_registry_client_async_proxy.get_tags(image_name)
     assert all(x in response for x in ["client_response", "tags"])
 
     tags = response["tags"]
@@ -1170,15 +785,15 @@ async def test_get_tags(
 
 @pytest.mark.online
 async def test__get_version(
-    docker_registry_client_async: DockerRegistryClientAsync,
-    known_good_image: TypingKnownGoodImage,
+    docker_registry_client_async_proxy: DockerRegistryClientAsync,
+    known_good_image_proxy: TypingKnownGoodImage,
 ):
     """Test that the endpoint implements Docker Registry API v2."""
     LOGGER.debug(
-        "Retrieving version from %s ...", known_good_image["image_name"].endpoint
+        "Retrieving version from %s ...", known_good_image_proxy["image_name"].endpoint
     )
-    client_response = await docker_registry_client_async._get_version(
-        known_good_image["image_name"]
+    client_response = await docker_registry_client_async_proxy._get_version(
+        known_good_image_proxy["image_name"]
     )
     assert client_response
     assert client_response.status == HTTPStatus.OK
@@ -1191,9 +806,11 @@ async def test__get_version_dockerhub():
     """Test that the endpoint implements Docker Registry API v2."""
     # Note: Using default credentials store from the test environment
     image_name = ImageName("")
-    async with DockerRegistryClientAsync() as docker_registry_client_async:
+    async with DockerRegistryClientAsync() as docker_registry_client_async_proxy:
         LOGGER.debug("Retrieving version from %s ...", image_name.resolve_endpoint())
-        client_response = await docker_registry_client_async._get_version(image_name)
+        client_response = await docker_registry_client_async_proxy._get_version(
+            image_name
+        )
     assert client_response
     assert client_response.status == HTTPStatus.OK
     assert client_response.content_type == "application/json"
@@ -1202,15 +819,15 @@ async def test__get_version_dockerhub():
 
 @pytest.mark.online
 async def test_get_version(
-    docker_registry_client_async: DockerRegistryClientAsync,
-    known_good_image: TypingKnownGoodImage,
+    docker_registry_client_async_proxy: DockerRegistryClientAsync,
+    known_good_image_proxy: TypingKnownGoodImage,
 ):
     """Test that the endpoint implements Docker Registry API v2."""
     LOGGER.debug(
-        "Retrieving version from %s ...", known_good_image["image_name"].endpoint
+        "Retrieving version from %s ...", known_good_image_proxy["image_name"].endpoint
     )
-    response = await docker_registry_client_async.get_version(
-        known_good_image["image_name"]
+    response = await docker_registry_client_async_proxy.get_version(
+        known_good_image_proxy["image_name"]
     )
     assert all(x in response for x in ["client_response", "result"])
     assert response["result"]
@@ -1218,19 +835,19 @@ async def test_get_version(
 
 @pytest.mark.online
 async def test__head_blob(
-    docker_registry_client_async: DockerRegistryClientAsync,
-    known_good_image: TypingKnownGoodImage,
+    docker_registry_client_async_proxy: DockerRegistryClientAsync,
+    known_good_image_proxy: TypingKnownGoodImage,
 ):
     """Test that the image blobs (image configurations) can be retrieved."""
     manifest_data = await get_manifest_json(
-        docker_registry_client_async, known_good_image
+        docker_registry_client_async_proxy, known_good_image_proxy
     )
     config = manifest_data["manifest_json"]["config"]
     assert all(x in config for x in ["digest", "mediaType", "size"])
 
     config_digest = config["digest"]
     LOGGER.debug("Checking blob: %s/%s ...", manifest_data["image_name"], config_digest)
-    client_response = await docker_registry_client_async._head_blob(
+    client_response = await docker_registry_client_async_proxy._head_blob(
         manifest_data["image_name"], config_digest
     )
 
@@ -1246,19 +863,19 @@ async def test__head_blob(
 
 @pytest.mark.online
 async def test_head_blob(
-    docker_registry_client_async: DockerRegistryClientAsync,
-    known_good_image: TypingKnownGoodImage,
+    docker_registry_client_async_proxy: DockerRegistryClientAsync,
+    known_good_image_proxy: TypingKnownGoodImage,
 ):
     """Test that the image blobs (image configurations) can be retrieved."""
     manifest_data = await get_manifest_json(
-        docker_registry_client_async, known_good_image
+        docker_registry_client_async_proxy, known_good_image_proxy
     )
     config = manifest_data["manifest_json"]["config"]
     assert all(x in config for x in ["digest", "mediaType", "size"])
 
     config_digest = config["digest"]
     LOGGER.debug("Checking blob: %s/%s ...", manifest_data["image_name"], config_digest)
-    response = await docker_registry_client_async.head_blob(
+    response = await docker_registry_client_async_proxy.head_blob(
         manifest_data["image_name"], config_digest
     )
     assert all(x in response for x in ["client_response", "digest", "result"])
@@ -1270,7 +887,7 @@ async def test_head_blob(
     sha256_old = config_digest
     config_digest = config_digest.replace("1", "2")
     assert config_digest != sha256_old
-    response = await docker_registry_client_async.head_blob(
+    response = await docker_registry_client_async_proxy.head_blob(
         manifest_data["image_name"], config_digest
     )
     assert all(x in response for x in ["client_response", "digest", "result"])
@@ -1279,14 +896,16 @@ async def test_head_blob(
 
 @pytest.mark.online
 async def test__head_manifest(
-    docker_registry_client_async: DockerRegistryClientAsync,
-    known_good_image: TypingKnownGoodImage,
+    docker_registry_client_async_proxy: DockerRegistryClientAsync,
+    known_good_image_proxy: TypingKnownGoodImage,
 ):
     """Test that the image manifests existence can be checked."""
-    image_names = get_identifier_map(known_good_image).keys()
+    image_names = get_identifier_map(known_good_image_proxy).keys()
     for image_name in image_names:
         LOGGER.debug("Checking manifest for: %s ...", image_name)
-        client_response = await docker_registry_client_async._head_manifest(image_name)
+        client_response = await docker_registry_client_async_proxy._head_manifest(
+            image_name
+        )
         assert client_response
         assert client_response.status == HTTPStatus.OK
 
@@ -1301,14 +920,14 @@ async def test__head_manifest(
 
 @pytest.mark.online
 async def test_head_manifest(
-    docker_registry_client_async: DockerRegistryClientAsync,
-    known_good_image: TypingKnownGoodImage,
+    docker_registry_client_async_proxy: DockerRegistryClientAsync,
+    known_good_image_proxy: TypingKnownGoodImage,
 ):
     """Test that the image manifests existence can be checked."""
-    image_names = get_identifier_map(known_good_image).keys()
+    image_names = get_identifier_map(known_good_image_proxy).keys()
     for image_name in image_names:
         LOGGER.debug("Checking manifest for: %s ...", image_name)
-        response = await docker_registry_client_async.head_manifest(image_name)
+        response = await docker_registry_client_async_proxy.head_manifest(image_name)
         assert all(x in response for x in ["client_response", "digest", "result"])
 
         if image_name.digest:
@@ -1324,25 +943,29 @@ async def test_head_manifest(
                 image_name.digest.sha256.replace("1", "2")
             )
             assert image_name.digest.sha256 != sha256_old
-            response = await docker_registry_client_async.head_manifest(image_name)
+            response = await docker_registry_client_async_proxy.head_manifest(
+                image_name
+            )
             assert all(x in response for x in ["client_response", "digest", "result"])
             assert not response["result"]
 
 
 @pytest.mark.online_modification
 async def test__patch_blob_upload_chunked(
-    docker_registry_client_async: DockerRegistryClientAsync,
+    docker_registry_client_async_proxy: DockerRegistryClientAsync,
     known_binary_data: TypingGetBinaryData,
-    known_good_image: TypingKnownGoodImage,
+    known_good_image_proxy: TypingKnownGoodImage,
 ):
     """Test that the status of image blob uploads (chunked) can be retrieved."""
     manifest_data = await get_manifest_json(
-        docker_registry_client_async, known_good_image
+        docker_registry_client_async_proxy, known_good_image_proxy
     )
     manifest_data["image_name"].image += __name__
 
     LOGGER.debug("Initiating blob upload: %s ...", manifest_data["image_name"])
-    response = await docker_registry_client_async.post_blob(manifest_data["image_name"])
+    response = await docker_registry_client_async_proxy.post_blob(
+        manifest_data["image_name"]
+    )
     assert all(
         x in response
         for x in ["client_response", "docker_upload_uuid", "location", "range"]
@@ -1354,7 +977,7 @@ async def test__patch_blob_upload_chunked(
     LOGGER.debug("Patching blob upload: %s ...", response["location"])
     for offset in range(0, len(known_binary_data["data"]), chunk_size):
         chunk = known_binary_data["data"][offset : offset + chunk_size]
-        client_response = await docker_registry_client_async._patch_blob_upload(
+        client_response = await docker_registry_client_async_proxy._patch_blob_upload(
             location, chunk, offset=offset
         )
         upload_length += len(chunk)
@@ -1371,25 +994,27 @@ async def test__patch_blob_upload_chunked(
 
 @pytest.mark.online_modification
 async def test__patch_blob_upload_stream(
-    docker_registry_client_async: DockerRegistryClientAsync,
+    docker_registry_client_async_proxy: DockerRegistryClientAsync,
     known_binary_data: TypingGetBinaryData,
-    known_good_image: TypingKnownGoodImage,
+    known_good_image_proxy: TypingKnownGoodImage,
 ):
     """Test that the status of image blob uploads (stream) can be retrieved."""
     manifest_data = await get_manifest_json(
-        docker_registry_client_async, known_good_image
+        docker_registry_client_async_proxy, known_good_image_proxy
     )
     manifest_data["image_name"].image += __name__
 
     LOGGER.debug("Initiating blob upload: %s ...", manifest_data["image_name"])
-    response = await docker_registry_client_async.post_blob(manifest_data["image_name"])
+    response = await docker_registry_client_async_proxy.post_blob(
+        manifest_data["image_name"]
+    )
     assert all(
         x in response
         for x in ["client_response", "docker_upload_uuid", "location", "range"]
     )
 
     LOGGER.debug("Patching blob upload: %s ...", response["location"])
-    client_response = await docker_registry_client_async._patch_blob_upload(
+    client_response = await docker_registry_client_async_proxy._patch_blob_upload(
         response["location"], known_binary_data["data"]
     )
     assert client_response
@@ -1404,25 +1029,27 @@ async def test__patch_blob_upload_stream(
 
 @pytest.mark.online_modification
 async def test_patch_blob_upload_stream(
-    docker_registry_client_async: DockerRegistryClientAsync,
+    docker_registry_client_async_proxy: DockerRegistryClientAsync,
     known_binary_data: TypingGetBinaryData,
-    known_good_image: TypingKnownGoodImage,
+    known_good_image_proxy: TypingKnownGoodImage,
 ):
     """Test that the status of image blob uploads (stream) can be retrieved."""
     manifest_data = await get_manifest_json(
-        docker_registry_client_async, known_good_image
+        docker_registry_client_async_proxy, known_good_image_proxy
     )
     manifest_data["image_name"].image += __name__
 
     LOGGER.debug("Initiating blob upload: %s ...", manifest_data["image_name"])
-    response = await docker_registry_client_async.post_blob(manifest_data["image_name"])
+    response = await docker_registry_client_async_proxy.post_blob(
+        manifest_data["image_name"]
+    )
     assert all(
         x in response
         for x in ["client_response", "docker_upload_uuid", "location", "range"]
     )
 
     LOGGER.debug("Patching blob upload: %s ...", response["location"])
-    response = await docker_registry_client_async.patch_blob_upload(
+    response = await docker_registry_client_async_proxy.patch_blob_upload(
         response["location"], known_binary_data["data"]
     )
     assert all(
@@ -1433,13 +1060,13 @@ async def test_patch_blob_upload_stream(
 
 @pytest.mark.online_modification
 async def test_patch_blob_upload_from_disk_async(
-    docker_registry_client_async: DockerRegistryClientAsync,
-    known_good_image: TypingKnownGoodImage,
+    docker_registry_client_async_proxy: DockerRegistryClientAsync,
+    known_good_image_proxy: TypingKnownGoodImage,
     tmp_path: Path,
 ):
     """Test that image blob uploads can be retrieved from disk asynchronously."""
     manifest_data = await get_manifest_json(
-        docker_registry_client_async, known_good_image
+        docker_registry_client_async_proxy, known_good_image_proxy
     )
     config = manifest_data["manifest_json"]["config"]
     assert all(x in config for x in ["digest", "mediaType", "size"])
@@ -1450,7 +1077,7 @@ async def test_patch_blob_upload_from_disk_async(
     )
     path = tmp_path.joinpath("blob")
     async with aiofiles.open(path, mode="w+b") as file:
-        response = await docker_registry_client_async.get_blob_to_disk(
+        response = await docker_registry_client_async_proxy.get_blob_to_disk(
             manifest_data["image_name"],
             config_digest,
             file,
@@ -1462,11 +1089,13 @@ async def test_patch_blob_upload_from_disk_async(
     manifest_data["image_name"].image += __name__
 
     LOGGER.debug("Initiating blob upload: %s ...", manifest_data["image_name"])
-    response = await docker_registry_client_async.post_blob(manifest_data["image_name"])
+    response = await docker_registry_client_async_proxy.post_blob(
+        manifest_data["image_name"]
+    )
 
     LOGGER.debug("Patching blob upload: %s ...", response["location"])
     async with aiofiles.open(path, mode="r+b") as file:
-        response = await docker_registry_client_async.patch_blob_upload_from_disk(
+        response = await docker_registry_client_async_proxy.patch_blob_upload_from_disk(
             response["location"], file
         )
     assert all(
@@ -1484,13 +1113,13 @@ async def test_patch_blob_upload_from_disk_async(
 
 @pytest.mark.online_modification
 async def test_patch_blob_upload_from_disk_sync(
-    docker_registry_client_async: DockerRegistryClientAsync,
-    known_good_image: TypingKnownGoodImage,
+    docker_registry_client_async_proxy: DockerRegistryClientAsync,
+    known_good_image_proxy: TypingKnownGoodImage,
     tmp_path: Path,
 ):
     """Test that image blob uploads can be retrieved from disk asynchronously."""
     manifest_data = await get_manifest_json(
-        docker_registry_client_async, known_good_image
+        docker_registry_client_async_proxy, known_good_image_proxy
     )
     config = manifest_data["manifest_json"]["config"]
     assert all(x in config for x in ["digest", "mediaType", "size"])
@@ -1501,7 +1130,7 @@ async def test_patch_blob_upload_from_disk_sync(
     )
     path = tmp_path.joinpath("blob")
     with path.open(mode="w+b") as file:
-        response = await docker_registry_client_async.get_blob_to_disk(
+        response = await docker_registry_client_async_proxy.get_blob_to_disk(
             manifest_data["image_name"],
             config_digest,
             file,
@@ -1514,11 +1143,13 @@ async def test_patch_blob_upload_from_disk_sync(
     manifest_data["image_name"].image += __name__
 
     LOGGER.debug("Initiating blob upload: %s ...", manifest_data["image_name"])
-    response = await docker_registry_client_async.post_blob(manifest_data["image_name"])
+    response = await docker_registry_client_async_proxy.post_blob(
+        manifest_data["image_name"]
+    )
 
     LOGGER.debug("Patching blob upload: %s ...", response["location"])
     with path.open("r+b") as file:
-        response = await docker_registry_client_async.patch_blob_upload_from_disk(
+        response = await docker_registry_client_async_proxy.patch_blob_upload_from_disk(
             response["location"], file, file_is_async=False
         )
     assert all(
@@ -1534,20 +1165,20 @@ async def test_patch_blob_upload_from_disk_sync(
 )
 @pytest.mark.online_modification
 async def test__post_blob_monolithic(
-    docker_registry_client_async: DockerRegistryClientAsync,
+    docker_registry_client_async_proxy: DockerRegistryClientAsync,
     known_binary_data: TypingGetBinaryData,
-    known_good_image: TypingKnownGoodImage,
+    known_good_image_proxy: TypingKnownGoodImage,
 ):
     """Test that the blobs uploads can be initiated."""
     manifest_data = await get_manifest_json(
-        docker_registry_client_async, known_good_image
+        docker_registry_client_async_proxy, known_good_image_proxy
     )
     manifest_data["image_name"].image += __name__
 
     LOGGER.debug(
         "Initiating monolithic blob upload: %s ...", manifest_data["image_name"]
     )
-    client_response = await docker_registry_client_async._post_blob(
+    client_response = await docker_registry_client_async_proxy._post_blob(
         manifest_data["image_name"],
         data=known_binary_data["data"],
         digest=known_binary_data["digest"],
@@ -1562,19 +1193,19 @@ async def test__post_blob_monolithic(
 
 @pytest.mark.online_modification
 async def test__post_blob_resumable(
-    docker_registry_client_async: DockerRegistryClientAsync,
-    known_good_image: TypingKnownGoodImage,
+    docker_registry_client_async_proxy: DockerRegistryClientAsync,
+    known_good_image_proxy: TypingKnownGoodImage,
 ):
     """Test that the blobs uploads can be initiated."""
     manifest_data = await get_manifest_json(
-        docker_registry_client_async, known_good_image
+        docker_registry_client_async_proxy, known_good_image_proxy
     )
     manifest_data["image_name"].image += __name__
 
     LOGGER.debug(
         "Initiating resumable blob upload: %s ...", manifest_data["image_name"]
     )
-    client_response = await docker_registry_client_async._post_blob(
+    client_response = await docker_registry_client_async_proxy._post_blob(
         manifest_data["image_name"]
     )
     assert client_response
@@ -1587,12 +1218,12 @@ async def test__post_blob_resumable(
 
 @pytest.mark.online_modification
 async def test__post_blob_mount(
-    docker_registry_client_async: DockerRegistryClientAsync,
-    known_good_image: TypingKnownGoodImage,
+    docker_registry_client_async_proxy: DockerRegistryClientAsync,
+    known_good_image_proxy: TypingKnownGoodImage,
 ):
     """Test that the blobs can be mounted from other repositories."""
     manifest_data = await get_manifest_json(
-        docker_registry_client_async, known_good_image
+        docker_registry_client_async_proxy, known_good_image_proxy
     )
 
     layer = manifest_data["manifest_json"]["layers"][0]
@@ -1607,7 +1238,7 @@ async def test__post_blob_mount(
         layer_digest,
         destination,
     )
-    client_response = await docker_registry_client_async._post_blob(
+    client_response = await docker_registry_client_async_proxy._post_blob(
         destination, source=manifest_data["image_name"], digest=layer_digest
     )
     assert client_response
@@ -1624,17 +1255,19 @@ async def test__post_blob_mount(
 
 @pytest.mark.online_modification
 async def test_post_blob(
-    docker_registry_client_async: DockerRegistryClientAsync,
-    known_good_image: TypingKnownGoodImage,
+    docker_registry_client_async_proxy: DockerRegistryClientAsync,
+    known_good_image_proxy: TypingKnownGoodImage,
 ):
     """Test that the blobs uploads can be initiated."""
     manifest_data = await get_manifest_json(
-        docker_registry_client_async, known_good_image
+        docker_registry_client_async_proxy, known_good_image_proxy
     )
     manifest_data["image_name"].image += __name__
 
     LOGGER.debug("Initiating blob upload: %s ...", manifest_data["image_name"])
-    response = await docker_registry_client_async.post_blob(manifest_data["image_name"])
+    response = await docker_registry_client_async_proxy.post_blob(
+        manifest_data["image_name"]
+    )
     assert all(
         x in response
         for x in ["client_response", "docker_upload_uuid", "location", "range"]
@@ -1643,30 +1276,32 @@ async def test_post_blob(
 
 @pytest.mark.online_modification
 async def test__put_blob_upload(
-    docker_registry_client_async: DockerRegistryClientAsync,
+    docker_registry_client_async_proxy: DockerRegistryClientAsync,
     known_binary_data: TypingGetBinaryData,
-    known_good_image: TypingKnownGoodImage,
+    known_good_image_proxy: TypingKnownGoodImage,
 ):
     """Test that an image blob upload can be completed."""
     manifest_data = await get_manifest_json(
-        docker_registry_client_async, known_good_image
+        docker_registry_client_async_proxy, known_good_image_proxy
     )
     manifest_data["image_name"].image += __name__
 
     LOGGER.debug("Initiating blob upload: %s ...", manifest_data["image_name"])
-    response = await docker_registry_client_async.post_blob(manifest_data["image_name"])
+    response = await docker_registry_client_async_proxy.post_blob(
+        manifest_data["image_name"]
+    )
     assert all(
         x in response
         for x in ["client_response", "docker_upload_uuid", "location", "range"]
     )
 
     LOGGER.debug("Patching blob upload: %s ...", response["location"])
-    response = await docker_registry_client_async.patch_blob_upload(
+    response = await docker_registry_client_async_proxy.patch_blob_upload(
         response["location"], known_binary_data["data"]
     )
 
     LOGGER.debug("Completing blob upload: %s ...", response["location"])
-    client_response = await docker_registry_client_async._put_blob_upload(
+    client_response = await docker_registry_client_async_proxy._put_blob_upload(
         response["location"], known_binary_data["digest"]
     )
 
@@ -1683,25 +1318,27 @@ async def test__put_blob_upload(
 
 @pytest.mark.online_modification
 async def test__put_blob_upload_monolithic_data_in_patch(
-    docker_registry_client_async: DockerRegistryClientAsync,
+    docker_registry_client_async_proxy: DockerRegistryClientAsync,
     known_binary_data: TypingGetBinaryData,
-    known_good_image: TypingKnownGoodImage,
+    known_good_image_proxy: TypingKnownGoodImage,
 ):
     """Test that an image blob upload can be completed monolithically."""
     manifest_data = await get_manifest_json(
-        docker_registry_client_async, known_good_image
+        docker_registry_client_async_proxy, known_good_image_proxy
     )
     manifest_data["image_name"].image += __name__
 
     LOGGER.debug("Initiating blob upload: %s ...", manifest_data["image_name"])
-    response = await docker_registry_client_async.post_blob(manifest_data["image_name"])
+    response = await docker_registry_client_async_proxy.post_blob(
+        manifest_data["image_name"]
+    )
     assert all(
         x in response
         for x in ["client_response", "docker_upload_uuid", "location", "range"]
     )
 
     LOGGER.debug("Patching blob upload: %s ...", response["location"])
-    response = await docker_registry_client_async.patch_blob_upload(
+    response = await docker_registry_client_async_proxy.patch_blob_upload(
         response["location"], known_binary_data["data"]
     )
     assert all(
@@ -1710,7 +1347,7 @@ async def test__put_blob_upload_monolithic_data_in_patch(
     )
 
     LOGGER.debug("Completing blob upload: %s ...", response["location"])
-    client_response = await docker_registry_client_async._put_blob_upload(
+    client_response = await docker_registry_client_async_proxy._put_blob_upload(
         response["location"], known_binary_data["digest"]
     )
 
@@ -1731,20 +1368,20 @@ async def test__put_blob_upload_monolithic_data_in_patch(
 )
 @pytest.mark.online_modification
 async def test__put_blob_upload_monolithic_data_in_post(
-    docker_registry_client_async: DockerRegistryClientAsync,
+    docker_registry_client_async_proxy: DockerRegistryClientAsync,
     known_binary_data: TypingGetBinaryData,
-    known_good_image: TypingKnownGoodImage,
+    known_good_image_proxy: TypingKnownGoodImage,
 ):
     """Test that an image blob upload can be completed monolithically."""
     manifest_data = await get_manifest_json(
-        docker_registry_client_async, known_good_image
+        docker_registry_client_async_proxy, known_good_image_proxy
     )
     manifest_data["image_name"].image += __name__
 
     LOGGER.debug(
         "Initiating blob upload (with data): %s ...", manifest_data["image_name"]
     )
-    response = await docker_registry_client_async.post_blob(
+    response = await docker_registry_client_async_proxy.post_blob(
         manifest_data["image_name"], data=known_binary_data["data"]
     )
     assert all(
@@ -1753,7 +1390,7 @@ async def test__put_blob_upload_monolithic_data_in_post(
     )
 
     LOGGER.debug("Completing blob upload: %s ...", response["location"])
-    client_response = await docker_registry_client_async._put_blob_upload(
+    client_response = await docker_registry_client_async_proxy._put_blob_upload(
         response["location"], known_binary_data["digest"]
     )
 
@@ -1770,25 +1407,27 @@ async def test__put_blob_upload_monolithic_data_in_post(
 
 @pytest.mark.online_modification
 async def test__put_blob_upload_monolithic_data_in_put(
-    docker_registry_client_async: DockerRegistryClientAsync,
+    docker_registry_client_async_proxy: DockerRegistryClientAsync,
     known_binary_data: TypingGetBinaryData,
-    known_good_image: TypingKnownGoodImage,
+    known_good_image_proxy: TypingKnownGoodImage,
 ):
     """Test that an image blob upload can be completed monolithically."""
     manifest_data = await get_manifest_json(
-        docker_registry_client_async, known_good_image
+        docker_registry_client_async_proxy, known_good_image_proxy
     )
     manifest_data["image_name"].image += __name__
 
     LOGGER.debug("Initiating blob upload: %s ...", manifest_data["image_name"])
-    response = await docker_registry_client_async.post_blob(manifest_data["image_name"])
+    response = await docker_registry_client_async_proxy.post_blob(
+        manifest_data["image_name"]
+    )
     assert all(
         x in response
         for x in ["client_response", "docker_upload_uuid", "location", "range"]
     )
 
     LOGGER.debug("Completing blob upload (with data): %s ...", response["location"])
-    client_response = await docker_registry_client_async._put_blob_upload(
+    client_response = await docker_registry_client_async_proxy._put_blob_upload(
         response["location"],
         known_binary_data["digest"],
         data=known_binary_data["data"],
@@ -1807,30 +1446,32 @@ async def test__put_blob_upload_monolithic_data_in_put(
 
 @pytest.mark.online_modification
 async def test_put_blob_upload(
-    docker_registry_client_async: DockerRegistryClientAsync,
+    docker_registry_client_async_proxy: DockerRegistryClientAsync,
     known_binary_data: TypingGetBinaryData,
-    known_good_image: TypingKnownGoodImage,
+    known_good_image_proxy: TypingKnownGoodImage,
 ):
     """Test that an image blob upload can be completed."""
     manifest_data = await get_manifest_json(
-        docker_registry_client_async, known_good_image
+        docker_registry_client_async_proxy, known_good_image_proxy
     )
     manifest_data["image_name"].image += __name__
 
     LOGGER.debug("Initiating blob upload: %s ...", manifest_data["image_name"])
-    response = await docker_registry_client_async.post_blob(manifest_data["image_name"])
+    response = await docker_registry_client_async_proxy.post_blob(
+        manifest_data["image_name"]
+    )
     assert all(
         x in response
         for x in ["client_response", "docker_upload_uuid", "location", "range"]
     )
 
     LOGGER.debug("Patching blob upload: %s ...", response["location"])
-    response = await docker_registry_client_async.patch_blob_upload(
+    response = await docker_registry_client_async_proxy.patch_blob_upload(
         response["location"], known_binary_data["data"]
     )
 
     LOGGER.debug("Completing blob upload: %s ...", response["location"])
-    response = await docker_registry_client_async.put_blob_upload(
+    response = await docker_registry_client_async_proxy.put_blob_upload(
         response["location"], known_binary_data["digest"]
     )
     assert all(x in response for x in ["client_response", "digest", "location"])
@@ -1844,13 +1485,13 @@ async def test_put_blob_upload(
 
 @pytest.mark.online_modification
 async def test_put_blob_upload_from_disk_async(
-    docker_registry_client_async: DockerRegistryClientAsync,
-    known_good_image: TypingKnownGoodImage,
+    docker_registry_client_async_proxy: DockerRegistryClientAsync,
+    known_good_image_proxy: TypingKnownGoodImage,
     tmp_path: Path,
 ):
     """Test that the image manifests can be retrieved to disk asynchronously."""
     manifest_data = await get_manifest_json(
-        docker_registry_client_async, known_good_image
+        docker_registry_client_async_proxy, known_good_image_proxy
     )
     config = manifest_data["manifest_json"]["config"]
     assert all(x in config for x in ["digest", "mediaType", "size"])
@@ -1861,7 +1502,7 @@ async def test_put_blob_upload_from_disk_async(
     )
     path = tmp_path.joinpath("blob")
     async with aiofiles.open(path, mode="w+b") as file:
-        response = await docker_registry_client_async.get_blob_to_disk(
+        response = await docker_registry_client_async_proxy.get_blob_to_disk(
             manifest_data["image_name"],
             config_digest,
             file,
@@ -1878,7 +1519,9 @@ async def test_put_blob_upload_from_disk_async(
     manifest_data["image_name"].image += __name__
 
     LOGGER.debug("Initiating blob upload: %s ...", manifest_data["image_name"])
-    response = await docker_registry_client_async.post_blob(manifest_data["image_name"])
+    response = await docker_registry_client_async_proxy.post_blob(
+        manifest_data["image_name"]
+    )
     assert all(
         x in response
         for x in ["client_response", "docker_upload_uuid", "location", "range"]
@@ -1886,7 +1529,7 @@ async def test_put_blob_upload_from_disk_async(
 
     LOGGER.debug("Completing blob upload: %s ...", response["location"])
     async with aiofiles.open(path, mode="r+b") as file:
-        response = await docker_registry_client_async.put_blob_upload_from_disk(
+        response = await docker_registry_client_async_proxy.put_blob_upload_from_disk(
             response["location"], config_digest, file
         )
     assert all(x in response for x in ["client_response", "digest", "location"])
@@ -1895,13 +1538,13 @@ async def test_put_blob_upload_from_disk_async(
 
 @pytest.mark.online_modification
 async def test_put_blob_upload_from_disk_sync(
-    docker_registry_client_async: DockerRegistryClientAsync,
-    known_good_image: TypingKnownGoodImage,
+    docker_registry_client_async_proxy: DockerRegistryClientAsync,
+    known_good_image_proxy: TypingKnownGoodImage,
     tmp_path: Path,
 ):
     """Test that the image manifests can be retrieved to disk asynchronously."""
     manifest_data = await get_manifest_json(
-        docker_registry_client_async, known_good_image
+        docker_registry_client_async_proxy, known_good_image_proxy
     )
     config = manifest_data["manifest_json"]["config"]
     assert all(x in config for x in ["digest", "mediaType", "size"])
@@ -1912,7 +1555,7 @@ async def test_put_blob_upload_from_disk_sync(
     )
     path = tmp_path.joinpath("blob")
     with path.open("w+b") as file:
-        response = await docker_registry_client_async.get_blob_to_disk(
+        response = await docker_registry_client_async_proxy.get_blob_to_disk(
             manifest_data["image_name"],
             config_digest,
             file,
@@ -1930,7 +1573,9 @@ async def test_put_blob_upload_from_disk_sync(
     manifest_data["image_name"].image += __name__
 
     LOGGER.debug("Initiating blob upload: %s ...", manifest_data["image_name"])
-    response = await docker_registry_client_async.post_blob(manifest_data["image_name"])
+    response = await docker_registry_client_async_proxy.post_blob(
+        manifest_data["image_name"]
+    )
     assert all(
         x in response
         for x in ["client_response", "docker_upload_uuid", "location", "range"]
@@ -1938,7 +1583,7 @@ async def test_put_blob_upload_from_disk_sync(
 
     LOGGER.debug("Completing blob upload: %s ...", response["location"])
     with path.open("r+b") as file:
-        response = await docker_registry_client_async.put_blob_upload_from_disk(
+        response = await docker_registry_client_async_proxy.put_blob_upload_from_disk(
             response["location"], config_digest, file, file_is_async=False
         )
     assert all(x in response for x in ["client_response", "digest", "location"])
@@ -1947,14 +1592,14 @@ async def test_put_blob_upload_from_disk_sync(
 
 @pytest.mark.online_modification
 async def test__put_manifest(
-    docker_registry_client_async: DockerRegistryClientAsync,
-    known_good_image: TypingKnownGoodImage,
+    docker_registry_client_async_proxy: DockerRegistryClientAsync,
+    known_good_image_proxy: TypingKnownGoodImage,
 ):
     """Test that the image manifests can be stored."""
-    identifier_map = get_identifier_map(known_good_image)
+    identifier_map = get_identifier_map(known_good_image_proxy)
     for image_name, media_type in identifier_map.items():
         LOGGER.debug("Retrieving manifest for: %s (%s) ...", image_name, media_type)
-        response = await docker_registry_client_async.get_manifest(
+        response = await docker_registry_client_async_proxy.get_manifest(
             image_name, accept=media_type
         )
         assert all(x in response for x in ["client_response", "manifest"])
@@ -1966,7 +1611,7 @@ async def test__put_manifest(
             image_name,
             response["manifest"].get_digest(),
         )
-        client_response = await docker_registry_client_async._put_manifest(
+        client_response = await docker_registry_client_async_proxy._put_manifest(
             image_name,
             response["manifest"].get_bytes(),
             media_type=response["manifest"].get_media_type(),
@@ -1985,14 +1630,14 @@ async def test__put_manifest(
 
 @pytest.mark.online_modification
 async def test_put_manifest(
-    docker_registry_client_async: DockerRegistryClientAsync,
-    known_good_image: TypingKnownGoodImage,
+    docker_registry_client_async_proxy: DockerRegistryClientAsync,
+    known_good_image_proxy: TypingKnownGoodImage,
 ):
     """Test that the image manifests can be stored."""
-    identifier_map = get_identifier_map(known_good_image)
+    identifier_map = get_identifier_map(known_good_image_proxy)
     for image_name, media_type in identifier_map.items():
         LOGGER.debug("Retrieving manifest for: %s (%s) ...", image_name, media_type)
-        response = await docker_registry_client_async.get_manifest(
+        response = await docker_registry_client_async_proxy.get_manifest(
             image_name, accept=media_type
         )
         assert all(x in response for x in ["client_response", "manifest"])
@@ -2004,7 +1649,9 @@ async def test_put_manifest(
         if image_name.tag:
             image_name.tag += __name__
         LOGGER.debug("Storing manifest: %s (%s) ...", image_name, manifest.get_digest())
-        response = await docker_registry_client_async.put_manifest(image_name, manifest)
+        response = await docker_registry_client_async_proxy.put_manifest(
+            image_name, manifest
+        )
         assert all(x in response for x in ["client_response", "digest"])
 
         if image_name.digest:
@@ -2024,7 +1671,9 @@ async def test_put_manifest(
             image_name,
             manifest.get_digest(),
         )
-        response = await docker_registry_client_async.put_manifest(image_name, manifest)
+        response = await docker_registry_client_async_proxy.put_manifest(
+            image_name, manifest
+        )
         assert all(x in response for x in ["client_response", "digest"])
 
         assert response["digest"] == manifest.get_digest()
@@ -2032,18 +1681,18 @@ async def test_put_manifest(
 
 @pytest.mark.online_modification
 async def test_put_manifest_from_disk_async(
-    docker_registry_client_async: DockerRegistryClientAsync,
-    known_good_image: TypingKnownGoodImage,
+    docker_registry_client_async_proxy: DockerRegistryClientAsync,
+    known_good_image_proxy: TypingKnownGoodImage,
     tmp_path: Path,
 ):
     """Test that the image manifests can be retrieved to disk asynchronously."""
     media_type = DockerMediaTypes.DISTRIBUTION_MANIFEST_V2
-    digest = known_good_image["digests"][media_type]
-    image_name = ImageName.parse(f"{known_good_image['image']}@{digest}")
+    digest = known_good_image_proxy["digests"][media_type]
+    image_name = ImageName.parse(f"{known_good_image_proxy['image']}@{digest}")
     LOGGER.debug("Retrieving manifest for: %s ...", image_name)
     path = tmp_path.joinpath("manifest")
     async with aiofiles.open(path, mode="w+b") as file:
-        response = await docker_registry_client_async.get_manifest_to_disk(
+        response = await docker_registry_client_async_proxy.get_manifest_to_disk(
             image_name, file
         )
     assert all(x in response for x in ["client_response", "digest", "size"])
@@ -2052,7 +1701,7 @@ async def test_put_manifest_from_disk_async(
         image_name.tag += __name__
     LOGGER.debug("Storing manifest: %s ...", image_name)
     async with aiofiles.open(path, mode="r+b") as file:
-        response = await docker_registry_client_async.put_manifest_from_disk(
+        response = await docker_registry_client_async_proxy.put_manifest_from_disk(
             image_name, file, media_type=media_type
         )
     assert all(x in response for x in ["client_response", "digest"])
@@ -2061,18 +1710,18 @@ async def test_put_manifest_from_disk_async(
 
 @pytest.mark.online_modification
 async def test_put_manifest_from_disk_sync(
-    docker_registry_client_async: DockerRegistryClientAsync,
-    known_good_image: TypingKnownGoodImage,
+    docker_registry_client_async_proxy: DockerRegistryClientAsync,
+    known_good_image_proxy: TypingKnownGoodImage,
     tmp_path: Path,
 ):
     """Test that the image manifests can be retrieved to disk asynchronously."""
     media_type = DockerMediaTypes.DISTRIBUTION_MANIFEST_V2
-    digest = known_good_image["digests"][media_type]
-    image_name = ImageName.parse(f"{known_good_image['image']}@{digest}")
+    digest = known_good_image_proxy["digests"][media_type]
+    image_name = ImageName.parse(f"{known_good_image_proxy['image']}@{digest}")
     LOGGER.debug("Retrieving manifest for: %s ...", image_name)
     path = tmp_path.joinpath("manifest")
     with path.open("w+b") as file:
-        response = await docker_registry_client_async.get_manifest_to_disk(
+        response = await docker_registry_client_async_proxy.get_manifest_to_disk(
             image_name, file, file_is_async=False
         )
     assert all(x in response for x in ["client_response", "digest", "size"])
@@ -2081,7 +1730,7 @@ async def test_put_manifest_from_disk_sync(
         image_name.tag += __name__
     LOGGER.debug("Storing manifest: %s ...", image_name)
     with path.open("r+b") as file:
-        response = await docker_registry_client_async.put_manifest_from_disk(
+        response = await docker_registry_client_async_proxy.put_manifest_from_disk(
             image_name, file, file_is_async=False, media_type=media_type
         )
     assert all(x in response for x in ["client_response", "digest"])
