@@ -4,7 +4,7 @@
 
 """Typing classes."""
 
-from typing import Any, TypedDict, Union
+from typing import Any, NamedTuple, Optional
 
 from aiohttp import ClientResponse
 
@@ -12,83 +12,84 @@ from .formattedsha256 import FormattedSHA256
 from .manifest import Manifest
 
 
-class _AioHttpClientResponse(TypedDict):
+class DockerRegistryClientAsyncResult(NamedTuple):
     client_response: ClientResponse
-
-
-class _DockerContentDigest(TypedDict):
-    digest: Union[FormattedSHA256, None]
-
-
-class DockerRegistryClientAsyncResult(_AioHttpClientResponse):
     result: bool
 
 
-class DockerRegistryClientAsyncGetBlob(_AioHttpClientResponse):
+class DockerRegistryClientAsyncGetBlob(NamedTuple):
+    client_response: ClientResponse
     blob: bytes
 
 
-class DockerRegistryClientAsyncGetBlobUpload(_AioHttpClientResponse):
+class DockerRegistryClientAsyncGetBlobUpload(NamedTuple):
+    client_response: ClientResponse
     location: str
     range: str
 
 
-class DockerRegistryClientAsyncGetCatalog(_AioHttpClientResponse):
+class DockerRegistryClientAsyncGetCatalog(NamedTuple):
+    client_response: ClientResponse
     catalog: Any
 
 
-class DockerRegistryClientAsyncGetManifest(_AioHttpClientResponse):
+class DockerRegistryClientAsyncGetManifest(NamedTuple):
+    client_response: ClientResponse
     manifest: Manifest
 
 
-class DockerRegistryClientAsyncGetTags(_AioHttpClientResponse):
+class DockerRegistryClientAsyncGetTags(NamedTuple):
+    client_response: ClientResponse
     tags: Any
 
 
-class DockerRegistryClientAsyncHeadBlob(
-    DockerRegistryClientAsyncResult, _DockerContentDigest
-):
-    pass
+class DockerRegistryClientAsyncHeadBlob(NamedTuple):
+    client_response: ClientResponse
+    digest: Optional[FormattedSHA256]
+    result: bool
 
 
-class DockerRegistryClientAsyncHeadManifest(
-    DockerRegistryClientAsyncResult, _DockerContentDigest
-):
-    pass
+class DockerRegistryClientAsyncHeadManifest(NamedTuple):
+    client_response: ClientResponse
+    digest: Optional[FormattedSHA256]
+    result: bool
 
 
-class DockerRegistryClientAsyncXBlobUpload(_AioHttpClientResponse):
-    docker_upload_uuid: Union[str, None]
+class DockerRegistryClientAsyncXBlobUpload(NamedTuple):
+    client_response: ClientResponse
+    docker_upload_uuid: Optional[str]
     location: str
     range: str
 
 
-class DockerRegistryClientAsyncPatchBlobUploadFromDisk(
-    DockerRegistryClientAsyncXBlobUpload, _DockerContentDigest
-):
-    pass
+class DockerRegistryClientAsyncPatchBlobUploadFromDisk(NamedTuple):
+    client_response: ClientResponse
+    digest: Optional[FormattedSHA256]
+    docker_upload_uuid: Optional[str]
+    location: str
+    range: str
 
 
-class DockerRegistryClientAsyncPutBlobUpload(
-    _AioHttpClientResponse, _DockerContentDigest
-):
+class DockerRegistryClientAsyncPutBlobUpload(NamedTuple):
+    client_response: ClientResponse
+    digest: Optional[FormattedSHA256]
     # content_range: str
     location: str
 
 
-class DockerRegistryClientAsyncPutManifest(
-    _AioHttpClientResponse, _DockerContentDigest
-):
-    pass
+class DockerRegistryClientAsyncPutManifest(NamedTuple):
+    client_response: ClientResponse
+    digest: Optional[FormattedSHA256]
 
 
-class ImageNamePareString(TypedDict):
-    digest: Union[FormattedSHA256, None]
-    endpoint: Union[str, None]
+class ImageNameParseString(NamedTuple):
+    digest: Optional[FormattedSHA256]
+    endpoint: Optional[str]
     image: str
-    tag: Union[str, None]
+    tag: Optional[str]
 
 
-class UtilsChunkToFile(_AioHttpClientResponse):
+class UtilsChunkToFile(NamedTuple):
+    client_response: ClientResponse
     digest: FormattedSHA256
     size: int

@@ -9,7 +9,7 @@ from typing import Optional
 
 from .formattedsha256 import FormattedSHA256
 from .specs import Indices
-from .typing import ImageNamePareString
+from .typing import ImageNameParseString
 
 
 class ImageName:
@@ -86,7 +86,7 @@ class ImageName:
         return deepcopy(self)
 
     @staticmethod
-    def _parse_string(string: str) -> ImageNamePareString:
+    def _parse_string(string: str) -> ImageNameParseString:
         """
         Parses the endpoint, image, and tag from a given string.
 
@@ -100,12 +100,15 @@ class ImageName:
                 image: The name of the image; the image name and optional namespace.
                 tag: The tag name.
         """
-        result = {"digest": None, "endpoint": None, "image": None, "tag": None}
+        digest = None
+        endpoint = None
+        image = None
+        tag = None
 
         segments = string.split("/")
 
         parts = segments[-1].split(":")
-        result["image"] = parts[0]
+        image = parts[0]
         if len(parts) == 1:
             # image
             pass
@@ -113,15 +116,15 @@ class ImageName:
             # image@sha256:digest OR image:tag
             if "@" in parts[0]:
                 pieces = parts[0].split("@")
-                result["image"] = pieces[0]
-                result["digest"] = FormattedSHA256(parts[1])
+                image = pieces[0]
+                digest = FormattedSHA256(parts[1])
             else:
-                result["tag"] = parts[1]
+                tag = parts[1]
         elif len(parts) == 3:
             # image:tag@sha256:digest
             pieces = parts[1].split("@")
-            result["tag"] = pieces[0]
-            result["digest"] = FormattedSHA256(parts[2])
+            tag = pieces[0]
+            digest = FormattedSHA256(parts[2])
         else:
             raise ValueError(f"Unable to parse string: {string}")
 
@@ -144,14 +147,16 @@ class ImageName:
             # Assumption: That endpoint addresses will contain at least one '.' (period) character, and by convention
             #             image namespaces will not.
             if len(segments) > 2:
-                result["image"] = f"{'/'.join(segments[1:-1])}/{result['image']}"
+                image = f"{'/'.join(segments[1:-1])}/{image}"
 
             if any(x in segments[0] for x in [":", "."]):
-                result["endpoint"] = segments[0]
+                endpoint = segments[0]
             elif segments[0]:
-                result["image"] = f"{segments[0]}/{result['image']}"
+                image = f"{segments[0]}/{image}"
 
-        return result
+        return ImageNameParseString(
+            digest=digest, endpoint=endpoint, image=image, tag=tag
+        )
 
     @staticmethod
     def parse(image_name: str) -> "ImageName":
@@ -166,10 +171,10 @@ class ImageName:
         """
         parsed = ImageName._parse_string(image_name)
         return ImageName(
-            digest=parsed["digest"],
-            endpoint=parsed["endpoint"],
-            image=parsed["image"],
-            tag=parsed["tag"],
+            digest=parsed.digest,
+            endpoint=parsed.endpoint,
+            image=parsed.image,
+            tag=parsed.tag,
         )
 
     def resolve_digest(self) -> FormattedSHA256:

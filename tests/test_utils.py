@@ -113,9 +113,9 @@ async def test_chunk_file(client_session: ClientSession, tmp_path: Path):
         path_async = tmp_path.joinpath("test_async")
         async with aiofiles.open(path_async, mode="w+b") as file:
             result = await chunk_to_file(client_response, file)
-        assert result["client_response"] == client_response
-        assert result["digest"] == digest_expected
-        assert result["size"] == size
+        assert result.client_response == client_response
+        assert result.digest == digest_expected
+        assert result.size == size
 
         digest_actual = await hash_file(path_async)
         assert digest_actual == digest_expected
@@ -124,9 +124,9 @@ async def test_chunk_file(client_session: ClientSession, tmp_path: Path):
     async with client_session.get(url=url, allow_redirects=True) as client_response:
         with path_sync.open("w+b") as file:
             result = await chunk_to_file(client_response, file, file_is_async=False)
-        assert result["client_response"] == client_response
-        assert result["digest"] == digest_expected
-        assert result["size"] == size
+        assert result.client_response == client_response
+        assert result.digest == digest_expected
+        assert result.size == size
 
         digest_actual = await hash_file(path_async)
         assert digest_actual == digest_expected

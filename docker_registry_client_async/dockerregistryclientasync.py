@@ -428,10 +428,10 @@ class DockerRegistryClientAsync:
             The underlying client response.
         """
         client_response = await self._delete_blob(image_name, digest, **kwargs)
-        return {
-            "client_response": client_response,
-            "result": client_response.status == HTTPStatus.ACCEPTED,
-        }
+        return DockerRegistryClientAsyncResult(
+            client_response=client_response,
+            result=(client_response.status == HTTPStatus.ACCEPTED),
+        )
 
     async def _delete_blob_upload(self, location: str, **kwargs) -> ClientResponse:
         """
@@ -488,10 +488,10 @@ class DockerRegistryClientAsync:
         """
         kwargs.pop("protocol", None)
         client_response = await self._delete_blob_upload(location, **kwargs)
-        return {
-            "client_response": client_response,
-            "result": client_response.status == HTTPStatus.NO_CONTENT,
-        }
+        return DockerRegistryClientAsyncResult(
+            client_response=client_response,
+            result=(client_response.status == HTTPStatus.NO_CONTENT),
+        )
 
     async def _delete_manifest(self, image_name: ImageName, **kwargs) -> ClientResponse:
         """
@@ -546,10 +546,10 @@ class DockerRegistryClientAsync:
                 result: True if the manifest was deleted, False otherwise.
         """
         client_response = await self._delete_manifest(image_name, **kwargs)
-        return {
-            "client_response": client_response,
-            "result": client_response.status == HTTPStatus.ACCEPTED,
-        }
+        return DockerRegistryClientAsyncResult(
+            client_response=client_response,
+            result=(client_response.status == HTTPStatus.ACCEPTED),
+        )
 
     async def _get_blob(
         self,
@@ -624,7 +624,9 @@ class DockerRegistryClientAsync:
             image_name, digest, accept=accept, raise_for_status=True, **kwargs
         )
         data = await client_response.read()
-        return {"blob": data, "client_response": client_response}
+        return DockerRegistryClientAsyncGetBlob(
+            blob=data, client_response=client_response
+        )
 
     async def get_blob_to_disk(
         self,
@@ -707,11 +709,11 @@ class DockerRegistryClientAsync:
                 range: Range indicating the current progress of the upload.
         """
         client_response = await self._get_blob_upload(location, **kwargs)
-        return {
-            "client_response": client_response,
-            "location": client_response.headers["Location"],
-            "range": client_response.headers["Range"],
-        }
+        return DockerRegistryClientAsyncGetBlobUpload(
+            client_response=client_response,
+            location=client_response.headers["Location"],
+            range=client_response.headers["Range"],
+        )
 
     async def _get_catalog(self, image_name: ImageName, **kwargs) -> ClientResponse:
         """
@@ -775,7 +777,9 @@ class DockerRegistryClientAsync:
             image_name, raise_for_status=True, **kwargs
         )
         catalog = await client_response.json()
-        return {"catalog": catalog, "client_response": client_response}
+        return DockerRegistryClientAsyncGetCatalog(
+            catalog=catalog, client_response=client_response
+        )
 
     async def _get_manifest(
         self, image_name: ImageName, *, accept: str = None, **kwargs
@@ -842,7 +846,9 @@ class DockerRegistryClientAsync:
             image_name, accept=accept, raise_for_status=True, **kwargs
         )
         data = await client_response.read()
-        return {"client_response": client_response, "manifest": Manifest(data)}
+        return DockerRegistryClientAsyncGetManifest(
+            client_response=client_response, manifest=Manifest(data)
+        )
 
     async def get_manifest_to_disk(
         self,
@@ -939,7 +945,9 @@ class DockerRegistryClientAsync:
             ImageName(image_name.image, endpoint=image_name.endpoint, tag=tag)
             for tag in tags["tags"]
         ]
-        return {"client_response": client_response, "tags": tags}
+        return DockerRegistryClientAsyncGetTags(
+            client_response=client_response, tags=tags
+        )
 
     async def get_tags(
         self, image_name: ImageName, **kwargs
@@ -961,7 +969,9 @@ class DockerRegistryClientAsync:
             image_name, raise_for_status=True, **kwargs
         )
         tags = await client_response.json()
-        return {"client_response": client_response, "tags": tags}
+        return DockerRegistryClientAsyncGetTags(
+            client_response=client_response, tags=tags
+        )
 
     async def _get_version(
         self, image_name: ImageName, *, version: str = "2", **kwargs
@@ -1015,10 +1025,10 @@ class DockerRegistryClientAsync:
                 result: True if the v2 API is implemented, False otherwise
         """
         client_response = await self._get_version(image_name, **kwargs)
-        return {
-            "client_response": client_response,
-            "result": client_response.status == HTTPStatus.OK,
-        }
+        return DockerRegistryClientAsyncResult(
+            client_response=client_response,
+            result=(client_response.status == HTTPStatus.OK),
+        )
 
     async def _head_blob(
         self, image_name: ImageName, digest: FormattedSHA256, **kwargs
@@ -1081,11 +1091,11 @@ class DockerRegistryClientAsync:
             digest = FormattedSHA256.parse(
                 client_response.headers["Docker-Content-Digest"]
             )
-        return {
-            "client_response": client_response,
-            "digest": digest,
-            "result": client_response.status == HTTPStatus.OK,
-        }
+        return DockerRegistryClientAsyncHeadBlob(
+            client_response=client_response,
+            digest=digest,
+            result=(client_response.status == HTTPStatus.OK),
+        )
 
     async def _head_manifest(
         self, image_name: ImageName, *, accept: str = None, **kwargs
@@ -1155,11 +1165,11 @@ class DockerRegistryClientAsync:
             digest = FormattedSHA256.parse(
                 client_response.headers["Docker-Content-Digest"]
             )
-        return {
-            "client_response": client_response,
-            "digest": digest,
-            "result": client_response.status == HTTPStatus.OK,
-        }
+        return DockerRegistryClientAsyncHeadManifest(
+            client_response=client_response,
+            digest=digest,
+            result=(client_response.status == HTTPStatus.OK),
+        )
 
     async def _patch_blob_upload(
         self, location: str, data: Union[bytes, Any], *, offset: int = None, **kwargs
@@ -1229,12 +1239,12 @@ class DockerRegistryClientAsync:
         client_response = await self._patch_blob_upload(
             location, data, offset=offset, raise_for_status=True, **kwargs
         )
-        return {
-            "client_response": client_response,
-            "docker_upload_uuid": client_response.headers["Docker-Upload-UUID"],
-            "location": client_response.headers["Location"],
-            "range": client_response.headers["Range"],
-        }
+        return DockerRegistryClientAsyncXBlobUpload(
+            client_response=client_response,
+            docker_upload_uuid=client_response.headers["Docker-Upload-UUID"],
+            location=client_response.headers["Location"],
+            range=client_response.headers["Range"],
+        )
 
     async def patch_blob_upload_from_disk(
         self, location: str, file, *, file_is_async: bool = True, **kwargs
@@ -1264,13 +1274,13 @@ class DockerRegistryClientAsync:
             raise_for_status=True,
             **kwargs,
         )
-        return {
-            "client_response": client_response,
-            "digest": hashing_generator.get_digest(),
-            "docker_upload_uuid": client_response.headers["Docker-Upload-UUID"],
-            "location": client_response.headers["Location"],
-            "range": client_response.headers["Range"],
-        }
+        return DockerRegistryClientAsyncPatchBlobUploadFromDisk(
+            client_response=client_response,
+            digest=hashing_generator.get_digest(),
+            docker_upload_uuid=client_response.headers["Docker-Upload-UUID"],
+            location=client_response.headers["Location"],
+            range=client_response.headers["Range"],
+        )
 
     async def _post_blob(
         self,
@@ -1374,14 +1384,12 @@ class DockerRegistryClientAsync:
             raise_for_status=True,
             **kwargs,
         )
-        return {
-            "client_response": client_response,
-            "docker_upload_uuid": client_response.headers.get(
-                "Docker-Upload-UUID", None
-            ),
-            "location": client_response.headers["Location"],
-            "range": client_response.headers["Range"],
-        }
+        return DockerRegistryClientAsyncXBlobUpload(
+            client_response=client_response,
+            docker_upload_uuid=client_response.headers.get("Docker-Upload-UUID", None),
+            location=client_response.headers["Location"],
+            range=client_response.headers["Range"],
+        )
 
     async def _put_blob_upload(
         self,
@@ -1453,15 +1461,15 @@ class DockerRegistryClientAsync:
         client_response = await self._put_blob_upload(
             location, digest, data=data, raise_for_status=True, **kwargs
         )
-        return {
-            "client_response": client_response,
+        return DockerRegistryClientAsyncPutBlobUpload(
+            client_response=client_response,
             # Bad docs (code check: registry/handlers/blobupload.go:360)
-            # "content_range": client_response.headers["Content-Range"],
-            "digest": FormattedSHA256.parse(
+            # content_range=client_response.headers["Content-Range"],
+            digest=FormattedSHA256.parse(
                 client_response.headers["Docker-Content-Digest"]
             ),
-            "location": client_response.headers["Location"],
-        }
+            location=client_response.headers["Location"],
+        )
 
     async def put_blob_upload_from_disk(
         self,
@@ -1506,13 +1514,13 @@ class DockerRegistryClientAsync:
                 digest,
                 "Remote and local digests are inconsistent",
             )
-        return {
-            "client_response": client_response,
+        return DockerRegistryClientAsyncPutBlobUpload(
+            client_response=client_response,
             # Bad docs (code check: registry/handlers/blobupload.go:360)
-            # "content_range": client_response.headers["Content-Range"],
-            "digest": digest,
-            "location": client_response.headers["Location"],
-        }
+            # content_range=client_response.headers["Content-Range"],
+            digest=digest,
+            location=client_response.headers["Location"],
+        )
 
     async def _put_manifest(
         self,
@@ -1588,12 +1596,12 @@ class DockerRegistryClientAsync:
             raise_for_status=True,
             **kwargs,
         )
-        return {
-            "client_response": client_response,
-            "digest": FormattedSHA256.parse(
+        return DockerRegistryClientAsyncPutManifest(
+            client_response=client_response,
+            digest=FormattedSHA256.parse(
                 client_response.headers["Docker-Content-Digest"]
             ),
-        }
+        )
 
     async def put_manifest_from_disk(
         self,
@@ -1637,4 +1645,6 @@ class DockerRegistryClientAsync:
                 digest,
                 "Remote and local digests are inconsistent",
             )
-        return {"client_response": client_response, "digest": digest}
+        return DockerRegistryClientAsyncPutManifest(
+            client_response=client_response, digest=digest
+        )

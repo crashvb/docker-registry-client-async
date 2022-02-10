@@ -74,11 +74,11 @@ async def chunk_to_file(
 
     await be_kind_rewind(file, file_is_async=file_is_async)
 
-    return {
-        "client_response": client_response,
-        "digest": FormattedSHA256(hasher.hexdigest()),
-        "size": size,
-    }
+    return UtilsChunkToFile(
+        client_response=client_response,
+        digest=FormattedSHA256(hasher.hexdigest()),
+        size=size,
+    )
 
 
 def must_be_equal(
