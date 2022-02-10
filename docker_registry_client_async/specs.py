@@ -4,16 +4,19 @@
 
 """Reusable string literals."""
 
+GENERIC_OAUTH2_URL_PATTERN = (
+    "{0}?service={1}&scope={2}&client_id=docker-registry-client-async"
+)
+
 
 class DockerAuthentication:
     """
+    https://docs.docker.com/registry/spec/auth/token/
     https://github.com/docker/distribution/blob/master/docs/spec/auth/token.md
     https://github.com/docker/distribution/blob/master/docs/spec/auth/scope.md
     """
 
-    DOCKERHUB_URL_PATTERN = (
-        "{0}?service={1}&scope={2}&client_id=docker-registry-client-async"
-    )
+    DOCKERHUB_URL_PATTERN = GENERIC_OAUTH2_URL_PATTERN
 
     SCOPE_REGISTRY_CATALOG = "registry:catalog:*"
     SCOPE_REPOSITORY_PULL_PATTERN = "repository:{0}:pull"
@@ -45,16 +48,13 @@ class Indices:
 
     DOCKERHUB = "index.docker.io"
     QUAY = "quay.io"
+    REDHAT = "registry.redhat.io"
 
 
 class QuayAuthentication:
-    """
-    https://docs.quay.io/api/
-    """
+    """https://docs.quay.io/api/"""
 
-    QUAY_URL_PATTERN = (
-        "{0}?service={1}&scope={2}&client_id=docker-registry-client-async"
-    )
+    QUAY_URL_PATTERN = GENERIC_OAUTH2_URL_PATTERN
     SCOPE_REPOSITORY_PULL_PATTERN = "repo:{0}:read"
     SCOPE_REPOSITORY_PUSH_PATTERN = "repo:{0}:write"
     SCOPE_REPOSITORY_ALL_PATTERN = "repo:{0}:read,write"
@@ -63,6 +63,8 @@ class QuayAuthentication:
 class MediaTypes:
     """Generic mime types."""
 
+    ANY_ANY = "*/*"
+    APPLICATION_ANY = "application/*"
     APPLICATION_JSON = "application/json"
     APPLICATION_OCTET_STREAM = "application/octet-stream"
     APPLICATION_YAML = "application/yaml"
@@ -88,3 +90,12 @@ class OCIMediaTypes:
     )
     IMAGE_MANIFEST_V1 = "application/vnd.oci.image.manifest.v1+json"
     LAYOUT_HEADER_V1 = "application/vnd.oci.layout.header.v1+json"
+
+
+class RedHatAuthentication:
+    """https://access.redhat.com/articles/3560571"""
+
+    REDHAT_URL_PATTERN = GENERIC_OAUTH2_URL_PATTERN
+    SCOPE_REPOSITORY_PULL_PATTERN = "repository:{0}:pull"
+    SCOPE_REPOSITORY_PUSH_PATTERN = "repository:{0}:push"
+    SCOPE_REPOSITORY_ALL_PATTERN = "repository:{0}:pull,push"

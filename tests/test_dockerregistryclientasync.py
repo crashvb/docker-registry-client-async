@@ -30,6 +30,8 @@ from docker_registry_client_async import (
     Indices,
     Manifest,
     MediaTypes,
+    QuayAuthentication,
+    RedHatAuthentication,
 )
 
 from .testutils import get_test_data_path, hash_file
@@ -349,7 +351,7 @@ async def test__get_auth_token_dockerhub_anonymous():
 
 @pytest.mark.online
 async def test__get_auth_token_quay():
-    """Test that an authentication token can be retrieved for index.docker.io."""
+    """Test that an authentication token can be retrieved for quay.io."""
     endpoint = Indices.QUAY
     # Note: Using default credentials store from the test environment
     async with DockerRegistryClientAsync() as docker_registry_client_async:
@@ -358,10 +360,33 @@ async def test__get_auth_token_quay():
             token = await docker_registry_client_async._get_auth_token(
                 credentials=credentials,
                 endpoint=endpoint,
+                # scope=QuayAuthentication.SCOPE_REPOSITORY_PULL_PATTERN.format(
                 scope=DockerAuthentication.SCOPE_REPOSITORY_PULL_PATTERN.format(
                     "crio/busybox"
                 ),
             )
+            assert len(token) > 100
+        else:
+            pytest.skip(f"Unable to retrieve credentials for: {endpoint}")
+
+
+@pytest.mark.online
+async def test__get_auth_token_redhat():
+    """Test that an authentication token can be retrieved for registry.redhat.io."""
+    endpoint = Indices.REDHAT
+    # Note: Using default credentials store from the test environment
+    async with DockerRegistryClientAsync() as docker_registry_client_async:
+        credentials = await docker_registry_client_async._get_credentials(endpoint)
+        if credentials:
+            token = await docker_registry_client_async._get_auth_token(
+                credentials=credentials,
+                endpoint=endpoint,
+                # scope=RedHatAuthentication.SCOPE_REPOSITORY_PULL_PATTERN.format(
+                scope=DockerAuthentication.SCOPE_REPOSITORY_PULL_PATTERN.format(
+                    "ocs4/ocs-rhel8-operator"
+                ),
+            )
+            LOGGER.fatal("TOKEN: %s", token)
             assert len(token) > 100
         else:
             pytest.skip(f"Unable to retrieve credentials for: {endpoint}")

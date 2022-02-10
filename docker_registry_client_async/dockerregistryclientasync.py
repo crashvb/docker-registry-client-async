@@ -35,6 +35,7 @@ from .manifest import Manifest
 from .specs import (
     DockerAuthentication,
     DockerMediaTypes,
+    GENERIC_OAUTH2_URL_PATTERN,
     MediaTypes,
     OCIMediaTypes,
 )
@@ -65,9 +66,20 @@ class DockerRegistryClientAsync:
 
     DEBUG = os.environ.get("DRCA_DEBUG", "")
     DEFAULT_CREDENTIALS_STORE = Path.home().joinpath(".docker/config.json")
+    DEFAULT_MEDIA_TYPES_BLOB = (
+        f"{MediaTypes.APPLICATION_JSON};q=1.0,{MediaTypes.ANY_ANY};0.1"
+    )
+    DEFAULT_MEDIA_TYPES_MANIFEST = (
+        f"{DockerMediaTypes.DISTRIBUTION_MANIFEST_V2};q=1.0,"
+        f"{OCIMediaTypes.IMAGE_MANIFEST_V1};q=0.9,"
+        f"{DockerMediaTypes.DISTRIBUTION_MANIFEST_LIST_V2};q=0.8,"
+        f"{OCIMediaTypes.IMAGE_INDEX_V1};q=0.7,"
+        f"{MediaTypes.APPLICATION_JSON};q=0.6"
+        f"{DockerMediaTypes.DISTRIBUTION_MANIFEST_V1};q=0.5"
+    )
+    DEFAULT_PROTOCOL = os.environ.get("DRCA_DEFAULT_PROTOCOL", "https")
     # TODO: Remove TOKEN_BASED url checks, and implement proper response code parsing, and token lifecycle ...
     DEFAULT_TOKEN_BASED_ENDPOINTS = "index.docker.io,quay.io,registry.redhat.io"
-    DEFAULT_PROTOCOL = os.environ.get("DRCA_DEFAULT_PROTOCOL", "https")
 
     def __init__(
         self,
@@ -209,7 +221,7 @@ class DockerRegistryClientAsync:
             )
             bearer = auth_params["bearer"]
 
-            url = DockerAuthentication.DOCKERHUB_URL_PATTERN.format(
+            url = GENERIC_OAUTH2_URL_PATTERN.format(
                 bearer["realm"], bearer["service"], scope
             )
             client_response = await client_session.get(
@@ -563,7 +575,7 @@ class DockerRegistryClientAsync:
         protocol = kwargs.pop("protocol", DockerRegistryClientAsync.DEFAULT_PROTOCOL)
         url = f"{protocol}://{image_name.resolve_endpoint()}/v2/{image_name.resolve_image()}/blobs/{digest}"
         if accept is None:
-            accept = f"{MediaTypes.APPLICATION_JSON};q=1.0"
+            accept = DockerRegistryClientAsync.DEFAULT_MEDIA_TYPES_BLOB
         headers = await self._get_request_headers(
             image_name,
             {"Accept": accept, "Content-Type": MediaTypes.APPLICATION_OCTET_STREAM},
@@ -785,10 +797,7 @@ class DockerRegistryClientAsync:
         else:
             identifier = image_name.resolve_tag()
         if accept is None:
-            accept = (
-                f"{DockerMediaTypes.DISTRIBUTION_MANIFEST_V2};q=1.0,{OCIMediaTypes.IMAGE_MANIFEST_V1};q=0.5,"
-                f"{DockerMediaTypes.DISTRIBUTION_MANIFEST_V1};q=0.1"
-            )
+            accept = DockerRegistryClientAsync.DEFAULT_MEDIA_TYPES_MANIFEST
         protocol = kwargs.pop("protocol", DockerRegistryClientAsync.DEFAULT_PROTOCOL)
 
         headers = await self._get_request_headers(
@@ -1098,10 +1107,7 @@ class DockerRegistryClientAsync:
         else:
             identifier = image_name.resolve_tag()
         if accept is None:
-            accept = (
-                f"{DockerMediaTypes.DISTRIBUTION_MANIFEST_V2};q=1.0,{OCIMediaTypes.IMAGE_MANIFEST_V1};q=0.5,"
-                f"{DockerMediaTypes.DISTRIBUTION_MANIFEST_V1};q=0.1"
-            )
+            accept = DockerRegistryClientAsync.DEFAULT_MEDIA_TYPES_MANIFEST
         protocol = kwargs.pop("protocol", DockerRegistryClientAsync.DEFAULT_PROTOCOL)
 
         headers = await self._get_request_headers(
