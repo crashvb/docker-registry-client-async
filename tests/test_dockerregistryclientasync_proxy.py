@@ -23,26 +23,21 @@ from pytest_docker_registry_fixtures import (
 from pytest_docker_squid_fixtures import SquidSecure
 
 from docker_registry_client_async import (
-    DockerAuthentication,
     DockerMediaTypes,
     DockerRegistryClientAsync,
     FormattedSHA256,
     ImageName,
-    Indices,
-    Manifest,
     MediaTypes,
-    QuayAuthentication,
-    RedHatAuthentication,
 )
 
 from .test_dockerregistryclientasync import (
-    credentials_store_path,
+    credentials_store_path,  # Needed for pytest
     get_identifier_map,
     get_manifest_json,
     get_test_data,
-    known_binary_data,
+    known_binary_data,  # Needed for pytest
     pytestmark as dockerregistryclientasync_pytestmark,
-    replicate_manifest_lists,
+    replicate_manifest_lists,  # Needed for pytest
     TypingGetBinaryData,
     TypingKnownGoodImage,
 )

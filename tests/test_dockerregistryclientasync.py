@@ -30,8 +30,6 @@ from docker_registry_client_async import (
     Indices,
     Manifest,
     MediaTypes,
-    QuayAuthentication,
-    RedHatAuthentication,
 )
 
 from .testutils import get_test_data_path, hash_file
