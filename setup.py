@@ -56,6 +56,10 @@ setup(
     long_description_content_type="text/markdown",
     name="docker_registry_client_async",
     packages=find_packages(),
+    project_urls={
+        "Bug Reports": "https://github.com/crashvb/docker-registry-client-async/issues",
+        "Source": "https://github.com/crashvb/docker-registry-client-async",
+    },
     tests_require=[
         "pytest",
         "pytest-asyncio",
