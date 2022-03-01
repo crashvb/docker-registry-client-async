@@ -113,15 +113,15 @@ class DockerRegistryClientAsync:
             )
         if not proxies:
             proxies = {}
-        http_proxy = os.environ.get("HTTP_PROXY")
+        http_proxy = os.environ.get("HTTP_PROXY", os.environ.get("http_proxy"))
         if http_proxy and "http" not in proxies:
             proxies["http"] = http_proxy
-        https_proxy = os.environ.get("HTTPS_PROXY")
+        https_proxy = os.environ.get("HTTPS_PROXY", os.environ.get("https_proxy"))
         if https_proxy and "https" not in proxies:
             proxies["https"] = https_proxy
 
         if not no_proxy:
-            no_proxy = os.environ.get("NO_PROXY")
+            no_proxy = os.environ.get("NO_PROXY", os.environ.get("no_proxy"))
         no_proxy = no_proxy.split(",") if no_proxy else []
         if not resolver_kwargs:
             resolver_kwargs = {}
