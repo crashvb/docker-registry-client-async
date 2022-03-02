@@ -8,6 +8,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import socket
 
 from http import HTTPStatus
 from pathlib import Path
@@ -16,6 +17,7 @@ from typing import Any, Dict, Generator, NamedTuple
 import aiofiles
 import pytest
 
+from aiohttp import TCPConnector, ThreadedResolver
 from pytest_docker_registry_fixtures import (
     DockerRegistrySecure,
     ImageName as PDRFImageName,
@@ -2067,6 +2069,58 @@ async def test_put_manifest_from_disk_sync(
         )
     assert response.client_response
     assert response.digest == image_name.resolve_digest()
+
+
+@pytest.mark.online
+async def test_issue_25(
+    docker_registry_secure: DockerRegistrySecure, known_good_image: TypingKnownGoodImage
+):
+    """Test issue #25."""
+    credentials = docker_registry_secure.auth_header["Authorization"].split()[1]
+
+    image_names = list(get_identifier_map(known_good_image).keys())
+    image_name = image_names[0]
+
+    # IPv4 only ...
+    async with DockerRegistryClientAsync(
+        tcp_connector_kwargs={"family": socket.AF_INET},
+        ssl=docker_registry_secure.ssl_context,
+    ) as docker_registry_client_async:
+        await docker_registry_client_async.add_credentials(
+            credentials=credentials, endpoint=docker_registry_secure.endpoint
+        )
+        LOGGER.debug("Checking manifest for: %s ...", image_name)
+        response = await docker_registry_client_async.head_manifest(image_name)
+        assert response.client_response
+        assert response.result
+
+    # ThreadedResolver ...
+    async with DockerRegistryClientAsync(
+        tcp_connector_kwargs={"resolver": ThreadedResolver()},
+        ssl=docker_registry_secure.ssl_context,
+    ) as docker_registry_client_async:
+        await docker_registry_client_async.add_credentials(
+            credentials=credentials, endpoint=docker_registry_secure.endpoint
+        )
+        LOGGER.debug("Checking manifest for: %s ...", image_name)
+        response = await docker_registry_client_async.head_manifest(image_name)
+        assert response.client_response
+        assert response.result
+
+    # Custom TCPConnector ...
+    tcp_connector = TCPConnector(
+        resolver=ThreadedResolver(), ssl=docker_registry_secure.ssl_context
+    )
+    async with DockerRegistryClientAsync(
+        client_session_kwargs={"connector": tcp_connector}
+    ) as docker_registry_client_async:
+        await docker_registry_client_async.add_credentials(
+            credentials=credentials, endpoint=docker_registry_secure.endpoint
+        )
+        LOGGER.debug("Checking manifest for: %s ...", image_name)
+        response = await docker_registry_client_async.head_manifest(image_name)
+        assert response.client_response
+        assert response.result
 
 
 # TODO: Total image pull (with exists() checks)

@@ -84,26 +84,34 @@ class DockerRegistryClientAsync:
     def __init__(
         self,
         *,
+        client_session: ClientSession = None,
+        client_session_kwargs: Dict = None,
         credentials_store: Path = None,
         no_proxy: str = None,
         proxies: Dict[str, str] = None,
         proxy_auth: BasicAuth = None,
         resolver_kwargs: Dict = None,
         ssl: Union[None, bool, Fingerprint, SSLContext] = None,
+        tcp_connector_kwargs: Dict = None,
         token_based_endpoints: List[str] = None,
         **kwargs,
     ):
         # pylint: disable=unused-argument
         """
         Args:
+            client_session: The underlying client session to use when making connections.
+            client_session_kwargs: Arguments to be passed to the client session.
             credentials_store: Path to the docker registry credentials store.
             no_proxy: A comma separated list of domains to exclude from proxying.
             proxies: Mapping of protocols to proxy urls, optionally including credentials.
             proxy_auth: The credentials to use when proxying.
             resolver_kwargs: Arguments to be passed to the resolver
             ssl: SSL context.
+            tcp_connector_kwargs: Arguments to be passed to the TCP connector.
             token_based_endpoints: List of token-based endpoints
         """
+        if not client_session_kwargs:
+            client_session_kwargs = {}
         if not credentials_store:
             credentials_store = Path(
                 os.environ.get(
@@ -135,13 +143,16 @@ class DockerRegistryClientAsync:
         if ssl and DockerRegistryClientAsync.DEBUG:
             LOGGER.debug("SSL Context: %s", ssl.cert_store_stats())
 
+        if not tcp_connector_kwargs:
+            tcp_connector_kwargs = {}
         if not token_based_endpoints:
             token_based_endpoints = os.environ.get(
                 "DRCA_TOKEN_BASED_ENDPOINTS",
                 DockerRegistryClientAsync.DEFAULT_TOKEN_BASED_ENDPOINTS,
             ).split(",")
 
-        self.client_session = None
+        self.client_session = client_session
+        self.client_session_kwargs = client_session_kwargs
         self.credentials_store = credentials_store
         self.credentials = None
         self.proxies = proxies
@@ -149,6 +160,7 @@ class DockerRegistryClientAsync:
         self.proxy_no = no_proxy
         self.resolver_kwargs = resolver_kwargs
         self.ssl = ssl
+        self.tcp_connector_kwargs = tcp_connector_kwargs
         # Endpoint -> scope -> token
         self.tokens = {}
         self.token_based_endpoints = token_based_endpoints
@@ -246,11 +258,18 @@ class DockerRegistryClientAsync:
             The AIOHTTP client session.
         """
         if not self.client_session:
-            self.client_session = ClientSession(
-                connector=TCPConnector(
-                    resolver=AsyncResolver(**self.resolver_kwargs), ssl=self.ssl
+            if "resolver" not in self.tcp_connector_kwargs:
+                self.tcp_connector_kwargs["resolver"] = AsyncResolver(
+                    **self.resolver_kwargs
                 )
-            )
+            if "ssl" not in self.tcp_connector_kwargs:
+                self.tcp_connector_kwargs["ssl"] = self.ssl
+            if "connector" not in self.client_session_kwargs:
+                self.client_session_kwargs["connector"] = TCPConnector(
+                    **self.tcp_connector_kwargs
+                )
+            self.client_session = ClientSession(**self.client_session_kwargs)
+
         return self.client_session
 
     async def _get_credentials(self, endpoint: str) -> Optional[str]:
