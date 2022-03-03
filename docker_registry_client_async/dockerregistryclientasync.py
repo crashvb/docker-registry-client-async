@@ -60,6 +60,7 @@ LOGGER = logging.getLogger(__name__)
 
 
 class DockerRegistryClientAsync:
+    # pylint: disable=too-many-instance-attributes
     """
     AIOHTTP based Python REST client for the Docker Registry.
     """
@@ -96,7 +97,7 @@ class DockerRegistryClientAsync:
         token_based_endpoints: List[str] = None,
         **kwargs,
     ):
-        # pylint: disable=unused-argument
+        # pylint: disable=too-many-branches,unused-argument
         """
         Args:
             client_session: The underlying client session to use when making connections.
@@ -127,7 +128,6 @@ class DockerRegistryClientAsync:
         https_proxy = os.environ.get("HTTPS_PROXY", os.environ.get("https_proxy"))
         if https_proxy and "https" not in proxies:
             proxies["https"] = https_proxy
-
         if not no_proxy:
             no_proxy = os.environ.get("NO_PROXY", os.environ.get("no_proxy"))
         no_proxy = no_proxy.split(",") if no_proxy else []
@@ -139,10 +139,8 @@ class DockerRegistryClientAsync:
                 if DockerRegistryClientAsync.DEBUG:
                     LOGGER.debug("Using cacerts: %s", cacerts)
                 ssl = create_default_context(cafile=str(cacerts))
-
         if ssl and DockerRegistryClientAsync.DEBUG:
             LOGGER.debug("SSL Context: %s", ssl.cert_store_stats())
-
         if not tcp_connector_kwargs:
             tcp_connector_kwargs = {}
         if not token_based_endpoints:

@@ -22,7 +22,7 @@ class TypingGetTestData(NamedTuple):
 
 
 def get_test_data() -> Generator[TypingGetTestData, None, None]:
-    # pytest: disable=too-many-nested-blocks
+    # pylint: disable=too-many-nested-blocks
     """Dynamically initializes test data."""
     for endpoint in ["endpoint.io", "endpoint:port", "endpoint.io:port", None]:
         for slash in ["", "/"]:
