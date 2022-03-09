@@ -4,6 +4,7 @@
 
 """ImageName tests."""
 
+from time import time
 from typing import Generator, NamedTuple
 
 import pytest
@@ -221,3 +222,35 @@ def test_resolve_tag(image_data: TypingGetTestData):
     """Test tag resolution."""
     expected = image_data.tag if image_data.tag else ImageName.DEFAULT_TAG
     assert image_data.object.resolve_tag() == expected
+
+
+def test_set_digest(image_data: TypingGetTestData):
+    """Tests digest assignment."""
+    assert image_data.object.digest == image_data.digest
+    value = FormattedSHA256.calculate(f"data:{time()}".encode(encoding="utf-8"))
+    assert image_data.object.set_digest(value) == image_data.object
+    assert image_data.object.digest == value
+
+
+def test_set_endpoint(image_data: TypingGetTestData):
+    """Tests endpoint assignment."""
+    assert image_data.object.endpoint == image_data.endpoint
+    value = f"data:{time()}"
+    assert image_data.object.set_endpoint(value) == image_data.object
+    assert image_data.object.endpoint == value
+
+
+def test_set_image(image_data: TypingGetTestData):
+    """Tests image assignment."""
+    assert image_data.object.image == image_data.image
+    value = f"data/{time()}"
+    assert image_data.object.set_image(value) == image_data.object
+    assert image_data.object.image == value
+
+
+def test_set_tag(image_data: TypingGetTestData):
+    """Tests tag assignment."""
+    assert image_data.object.tag == image_data.tag
+    value = f"data:{time()}"
+    assert image_data.object.set_tag(value) == image_data.object
+    assert image_data.object.tag == value

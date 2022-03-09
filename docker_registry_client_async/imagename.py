@@ -219,3 +219,31 @@ class ImageName:
             The explicit tag name.
         """
         return self.tag if self.tag else ImageName.DEFAULT_TAG
+
+    def set_digest(self, digest: FormattedSHA256 = None) -> "ImageName":
+        """
+        Assigns the digest value.
+        """
+        self.digest = digest
+        return self
+
+    def set_endpoint(self, endpoint: str = None) -> "ImageName":
+        """
+        Assigns the registry endpoint.
+        """
+        self.endpoint = endpoint
+        return self
+
+    def set_image(self, image: str) -> "ImageName":
+        """
+        Assigns the name of the image.
+        """
+        self.image = image
+        return self
+
+    def set_tag(self, tag: str = None) -> "ImageName":
+        """
+        Assigns the tag name.
+        """
+        self.tag = tag
+        return self
