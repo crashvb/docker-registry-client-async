@@ -186,6 +186,7 @@ class DockerRegistryClientAsync:
         """Gracefully closes this instance."""
         if self.client_session:
             await self.client_session.close()
+        self.client_session = None
 
     async def _get_auth_token(
         self, *, credentials: str = None, endpoint: str, scope: str
@@ -373,7 +374,7 @@ class DockerRegistryClientAsync:
         return location.split("://")[0].lower()
 
     async def _load_credentials(self):
-        """Retrieves the registry credentials from the docker registry credentials store for a given endpoint."""
+        """Retrieves the registry credentials from the docker registry credentials store."""
         if self.credentials is None:
             self.credentials = {}
 

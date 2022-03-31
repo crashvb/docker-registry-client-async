@@ -44,7 +44,7 @@ pytestmark = [
     #         Compensate by specifying the namespace explicitly here, and it get_test_data().
     #       * Order of replication should be manifests, manifest lists, then tags.
     pytest.mark.push_image(
-        # "library/busybox:1.30.1",
+        "library/busybox:1.30.1",
         "library/busybox@sha256:4fe8827f51a5e11bb83afa8227cbccb402df840d32c6b633b7ad079bc8144100",
         "library/busybox@sha256:abc043b5132f825e44eefffc35535b1f24bd3f1bb60b11943863563a46795fdc",
         "library/busybox@sha256:07717dd5f074de0cf4f7ca8f635cb63aef63d789f15a22ab482a3d27a0a1f881",
@@ -54,7 +54,7 @@ pytestmark = [
         "library/busybox@sha256:a09f03056efb5d3facb5077a9e58e83e9bba74ad4d343b2afa92c70b5ae01e2b",
         "library/busybox@sha256:0b671b6a323d86aa6165883f698b557ca257c3a3ffa1e3152ffb6467e7ac11b3",
         "library/busybox@sha256:4b6ad3a68d34da29bf7c8ccb5d355ba8b4babcad1f99798204e7abb43e54ee3d",  # ManifestList
-        # "library/python:3.7.2-slim-stretch",
+        "library/python:3.7.2-slim-stretch",
         "library/python@sha256:0005ba40bf87e486d7061ca0112123270e4a6088b5071223c8d467db3dbba908",
         "library/python@sha256:09001905f918a977427cc6931a1cac84a8645b1ac2011fd3f40f625daf9a7fb1",
         "library/python@sha256:2d127b64fbb7a58ee8eb2c321f1bbd14548ab3191009cca7845b81155c9067bf",
@@ -2121,6 +2121,52 @@ async def test_issue_25(
         response = await docker_registry_client_async.head_manifest(image_name)
         assert response.client_response
         assert response.result
+
+
+@pytest.mark.online
+async def test_issue_27(
+    docker_registry_secure: DockerRegistrySecure, known_good_image: TypingKnownGoodImage
+):
+    """Test issue #27."""
+    credentials = docker_registry_secure.auth_header["Authorization"].split()[1]
+
+    image_names = list(get_identifier_map(known_good_image).keys())
+    image_name = image_names[0]
+
+    # connector_owner = True
+    docker_registry_client_async = DockerRegistryClientAsync(
+        ssl=docker_registry_secure.ssl_context
+    )
+    await docker_registry_client_async.add_credentials(
+        credentials=credentials, endpoint=docker_registry_secure.endpoint
+    )
+    LOGGER.debug("Checking manifest for: %s (#0) ...", image_name)
+    response = await docker_registry_client_async.head_manifest(image_name)
+    assert response.client_response
+    assert response.result
+    await docker_registry_client_async.close()
+
+    # connector_owner = False
+    docker_registry_client_async = DockerRegistryClientAsync(
+        client_session_kwargs={"connector_owner": False},
+        ssl=docker_registry_secure.ssl_context,
+    )
+    await docker_registry_client_async.add_credentials(
+        credentials=credentials, endpoint=docker_registry_secure.endpoint
+    )
+    LOGGER.debug("Checking manifest for: %s (#1) ...", image_name)
+    response = await docker_registry_client_async.head_manifest(image_name)
+    assert response.client_response
+    assert response.result
+    await docker_registry_client_async.close()
+    # Retry after close ...
+    LOGGER.debug("Checking manifest for: %s (#2) ...", image_name)
+    response = await docker_registry_client_async.head_manifest(image_name)
+    assert response.client_response
+    assert response.result
+
+    # Cleanup
+    docker_registry_client_async.client_session_kwargs["connector"].close()
 
 
 # TODO: Total image pull (with exists() checks)
