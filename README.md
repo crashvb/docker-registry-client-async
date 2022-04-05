@@ -66,7 +66,6 @@ $ python -m pip install --editable .[dev]
 | DRCA_DEFAULT_NAMESPACE | library | The default registry namespace to use when resolving image names.
 | DRCA_DEFAULT_TAG | latest | The default image tag to use when resolving image names.
 | DRCA_PROTOCOL | https | The default transport protocol to when communicating with a registry.
-| DRCA_TOKEN_BASED_ENDPOINTS | index.docker.io,quay.io,registry.redhat.io | Endpoints for which to retrieve authentication tokens.
 
 ## Development
 

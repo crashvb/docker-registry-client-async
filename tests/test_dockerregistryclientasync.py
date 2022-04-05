@@ -8,10 +8,12 @@ import asyncio
 import hashlib
 import json
 import logging
+import re
 import socket
 
 from http import HTTPStatus
 from pathlib import Path
+from time import time
 from typing import Any, Dict, Generator, NamedTuple
 
 import aiofiles
@@ -220,7 +222,7 @@ async def docker_registry_client_async(
     ) as docker_registry_client_async:
         credentials = docker_registry_secure.auth_header["Authorization"].split()[1]
         await docker_registry_client_async.add_credentials(
-            docker_registry_secure.endpoint, credentials
+            credentials=credentials, endpoint=docker_registry_secure.endpoint
         )
 
         yield docker_registry_client_async
@@ -280,7 +282,7 @@ async def replicate_manifest_lists(docker_registry_secure: DockerRegistrySecure)
                 image_name.image
             )
             auth_header_src = await docker_registry_client_async._get_request_headers(
-                image_name, scope=scope
+                image_name=image_name, scope=scope
             )
             if not auth_header_src:
                 LOGGER.warning(
@@ -318,10 +320,26 @@ async def test___init__(docker_registry_client_async: DockerRegistryClientAsync)
 async def test_add_credentials(docker_registry_client_async: DockerRegistryClientAsync):
     """Test that credentials can be assigned."""
     endpoint = "endpoint"
-    credentials = "credentials"
-    await docker_registry_client_async.add_credentials(endpoint, credentials)
-    result = await docker_registry_client_async._get_credentials(endpoint)
+    credentials = f"credentials{time()}"
+    await docker_registry_client_async.add_credentials(
+        credentials=credentials, endpoint=endpoint
+    )
+    result = await docker_registry_client_async._get_credentials(endpoint=endpoint)
     assert result == credentials
+
+
+async def test_add_token(docker_registry_client_async: DockerRegistryClientAsync):
+    """Test that tokens can be assigned."""
+    endpoint = "endpoint"
+    for scope in [None, f"scope{time()}"]:
+        token = f"token{time()}"
+        await docker_registry_client_async.add_token(
+            endpoint=endpoint, scope=scope, token=token
+        )
+        result = await docker_registry_client_async._get_token(
+            endpoint=endpoint, scope=scope
+        )
+        assert result == token
 
 
 @pytest.mark.online
@@ -330,7 +348,9 @@ async def test__get_auth_token_dockerhub():
     endpoint = Indices.DOCKERHUB
     # Note: Using default credentials store from the test environment
     async with DockerRegistryClientAsync() as docker_registry_client_async:
-        credentials = await docker_registry_client_async._get_credentials(endpoint)
+        credentials = await docker_registry_client_async._get_credentials(
+            endpoint=endpoint
+        )
         if credentials:
             token = await docker_registry_client_async._get_auth_token(
                 credentials=credentials,
@@ -362,7 +382,9 @@ async def test__get_auth_token_quay():
     endpoint = Indices.QUAY
     # Note: Using default credentials store from the test environment
     async with DockerRegistryClientAsync() as docker_registry_client_async:
-        credentials = await docker_registry_client_async._get_credentials(endpoint)
+        credentials = await docker_registry_client_async._get_credentials(
+            endpoint=endpoint
+        )
         if credentials:
             token = await docker_registry_client_async._get_auth_token(
                 credentials=credentials,
@@ -383,7 +405,9 @@ async def test__get_auth_token_redhat():
     endpoint = Indices.REDHAT
     # Note: Using default credentials store from the test environment
     async with DockerRegistryClientAsync() as docker_registry_client_async:
-        credentials = await docker_registry_client_async._get_credentials(endpoint)
+        credentials = await docker_registry_client_async._get_credentials(
+            endpoint=endpoint
+        )
         if credentials:
             token = await docker_registry_client_async._get_auth_token(
                 credentials=credentials,
@@ -416,8 +440,47 @@ async def test__get_credentials(
     docker_registry_client_async: DockerRegistryClientAsync, endpoint: str, auth: str
 ):
     """Test that credentials can be retrieved."""
-    result = await docker_registry_client_async._get_credentials(endpoint)
+    result = await docker_registry_client_async._get_credentials(endpoint=endpoint)
     assert result == auth
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        "com",
+        "com/",
+        "com:1234",
+        "com:1234/",
+        "google.com",
+        "google.com/",
+        "google.com:1234",
+        "google.com:1234/",
+        "www.google.com",
+        "www.google.com/",
+        "www.google.com:1234",
+        "www.google.com:1234/",
+        "https://com",
+        "https://com/",
+        "https://com:1234",
+        "https://com:1234/",
+        "https://google.com",
+        "https://google.com/",
+        "https://google.com:1234",
+        "https://google.com:1234/",
+        "https://www.google.com:1234",
+        "https://www.google.com:1234/",
+    ],
+)
+async def test__get_endpoint_pattern(endpoint: str):
+    """Tests that endpoints can be converted into regular expression patterns."""
+    pattern = await DockerRegistryClientAsync._get_endpoint_pattern(endpoint=endpoint)
+    assert pattern
+    pattern_raw = pattern.pattern
+    assert pattern_raw
+    assert pattern_raw.startswith("^")
+    assert pattern_raw.endswith("$")
+    _endpoint = endpoint.replace("https://", "").replace("/", "")
+    assert re.escape(_endpoint) in pattern_raw
 
 
 async def test__get_proxy(docker_registry_client_async: DockerRegistryClientAsync):
@@ -506,23 +569,19 @@ async def test__get_proxy(docker_registry_client_async: DockerRegistryClientAsyn
             assert result == url
 
 
-@pytest.mark.parametrize(
-    "endpoint,auth",
-    [
-        ("endpoint:port", "dXNlcm5hbWU6cGFzc3dvcmQ="),
-        ("endpoint2:port2", "dXNlcm5hbWUyOnBhc3N3b3JkMg=="),
-    ],
-)
 async def test__get_request_headers_basic_auth(
-    docker_registry_client_async: DockerRegistryClientAsync, endpoint: str, auth: str
+    docker_registry_client_async: DockerRegistryClientAsync,
+    docker_registry_secure: DockerRegistrySecure,
+    known_good_image: TypingKnownGoodImage,
 ):
     """Test request headers retrieval."""
-    image_name = ImageName("", endpoint=endpoint)
     existing_header = "existing-header"
     headers = await docker_registry_client_async._get_request_headers(
-        image_name, {existing_header: "1"}
+        headers={existing_header: "1"}, image_name=known_good_image.image_name
     )
-    assert auth in headers["Authorization"]
+    assert (
+        docker_registry_secure.auth_header["Authorization"] == headers["Authorization"]
+    )
     assert existing_header in headers
 
 
@@ -533,11 +592,91 @@ async def test__get_request_headers_token_anonymous():
     existing_header = "existing-header"
     async with DockerRegistryClientAsync() as docker_registry_client_async:
         headers = await docker_registry_client_async._get_request_headers(
-            image_name, {existing_header: "1"}
+            headers={existing_header: "1"}, image_name=image_name
         )
         assert headers["Authorization"].startswith("Bearer ")
         assert len(headers["Authorization"]) > 100
         assert existing_header in headers
+
+
+@pytest.mark.online
+async def test__get_token_dockerhub():
+    """Test that an authentication token can be retrieved for index.docker.io."""
+    endpoint = Indices.DOCKERHUB
+    # Note: Using default credentials store from the test environment
+    async with DockerRegistryClientAsync() as docker_registry_client_async:
+        credentials = await docker_registry_client_async._get_credentials(
+            endpoint=endpoint
+        )
+        if credentials:
+            token = await docker_registry_client_async._get_token(
+                credentials=credentials,
+                endpoint=endpoint,
+                scope=DockerAuthentication.SCOPE_REPOSITORY_PULL_PATTERN.format(
+                    "busybox"
+                ),
+            )
+            assert len(token) > 100
+        else:
+            pytest.skip(f"Unable to retrieve credentials for: {endpoint}")
+
+
+@pytest.mark.online
+async def test__get_token_dockerhub_anonymous():
+    """Test that an authentication token can be retrieved for index.docker.io anonymously."""
+    # Note: Using default credentials store from the test environment
+    async with DockerRegistryClientAsync() as docker_registry_client_async:
+        token = await docker_registry_client_async._get_token(
+            endpoint=Indices.DOCKERHUB,
+            scope=DockerAuthentication.SCOPE_REPOSITORY_PULL_PATTERN.format("busybox"),
+        )
+        assert len(token) > 100
+
+
+@pytest.mark.online
+async def test__get_token_quay():
+    """Test that an authentication token can be retrieved for quay.io."""
+    endpoint = Indices.QUAY
+    # Note: Using default credentials store from the test environment
+    async with DockerRegistryClientAsync() as docker_registry_client_async:
+        credentials = await docker_registry_client_async._get_credentials(
+            endpoint=endpoint
+        )
+        if credentials:
+            token = await docker_registry_client_async._get_token(
+                credentials=credentials,
+                endpoint=endpoint,
+                # scope=QuayAuthentication.SCOPE_REPOSITORY_PULL_PATTERN.format(
+                scope=DockerAuthentication.SCOPE_REPOSITORY_PULL_PATTERN.format(
+                    "crio/busybox"
+                ),
+            )
+            assert len(token) > 100
+        else:
+            pytest.skip(f"Unable to retrieve credentials for: {endpoint}")
+
+
+@pytest.mark.online
+async def test__get_token_redhat():
+    """Test that an authentication token can be retrieved for registry.redhat.io."""
+    endpoint = Indices.REDHAT
+    # Note: Using default credentials store from the test environment
+    async with DockerRegistryClientAsync() as docker_registry_client_async:
+        credentials = await docker_registry_client_async._get_credentials(
+            endpoint=endpoint
+        )
+        if credentials:
+            token = await docker_registry_client_async._get_token(
+                credentials=credentials,
+                endpoint=endpoint,
+                # scope=RedHatAuthentication.SCOPE_REPOSITORY_PULL_PATTERN.format(
+                scope=DockerAuthentication.SCOPE_REPOSITORY_PULL_PATTERN.format(
+                    "ocs4/ocs-rhel8-operator"
+                ),
+            )
+            assert len(token) > 100
+        else:
+            pytest.skip(f"Unable to retrieve credentials for: {endpoint}")
 
 
 @pytest.mark.parametrize(
@@ -553,9 +692,9 @@ async def test__load_credentials(
     """Test that credentials can be loaded from the credentials store."""
     await docker_registry_client_async._load_credentials()
     found = False
-    for key in docker_registry_client_async.credentials:
-        if endpoint in key:
-            assert docker_registry_client_async.credentials[key]["auth"] == auth
+    for pattern, credentials in docker_registry_client_async.credentials.items():
+        if pattern.fullmatch(endpoint):
+            assert credentials == auth
             found = True
     assert found
 
@@ -2121,6 +2260,40 @@ async def test_issue_25(
         response = await docker_registry_client_async.head_manifest(image_name)
         assert response.client_response
         assert response.result
+
+
+@pytest.mark.online
+async def test_issue_26():
+    """Test issue #26."""
+    endpoint = Indices.REDHAT
+    # Note: Using default credentials store from the test environment
+    for fallback_basic_auth in [True, False]:
+        for pattern in [r"^.*\.redhat\.io$", r"^.*\.io$", r"^.*$"]:
+            async with DockerRegistryClientAsync(
+                fallback_basic_auth=fallback_basic_auth
+            ) as docker_registry_client_async:
+                credentials = await docker_registry_client_async._get_credentials(
+                    endpoint=endpoint
+                )
+                if credentials:
+                    # Convert registry.redhat.io credentials into a pattern and remove all others ...
+                    docker_registry_client_async.credentials = {}
+                    await docker_registry_client_async.add_credentials(
+                        credentials=credentials, endpoint=re.compile(pattern)
+                    )
+                    assert len(docker_registry_client_async.credentials.keys()) == 1
+
+                    token = await docker_registry_client_async._get_token(
+                        credentials=credentials,
+                        endpoint=endpoint,
+                        # scope=RedHatAuthentication.SCOPE_REPOSITORY_PULL_PATTERN.format(
+                        scope=DockerAuthentication.SCOPE_REPOSITORY_PULL_PATTERN.format(
+                            "ocs4/ocs-rhel8-operator"
+                        ),
+                    )
+                    assert len(token) > 100
+                else:
+                    pytest.skip(f"Unable to retrieve credentials for: {endpoint}")
 
 
 @pytest.mark.online

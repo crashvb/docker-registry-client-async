@@ -11,6 +11,7 @@ import re
 
 from http import HTTPStatus
 from pathlib import Path
+from re import Pattern
 from ssl import create_default_context, SSLContext
 from typing import Any, Dict, List, Optional, Union
 from urllib.parse import urlparse
@@ -79,8 +80,6 @@ class DockerRegistryClientAsync:
         f"{DockerMediaTypes.DISTRIBUTION_MANIFEST_V1};q=0.5"
     )
     DEFAULT_PROTOCOL = os.environ.get("DRCA_DEFAULT_PROTOCOL", "https")
-    # TODO: Remove TOKEN_BASED url checks, and implement proper response code parsing, and token lifecycle ...
-    DEFAULT_TOKEN_BASED_ENDPOINTS = "index.docker.io,quay.io,registry.redhat.io"
 
     def __init__(
         self,
@@ -88,13 +87,13 @@ class DockerRegistryClientAsync:
         client_session: ClientSession = None,
         client_session_kwargs: Dict = None,
         credentials_store: Path = None,
+        fallback_basic_auth: bool = True,
         no_proxy: str = None,
         proxies: Dict[str, str] = None,
         proxy_auth: BasicAuth = None,
         resolver_kwargs: Dict = None,
         ssl: Union[None, bool, Fingerprint, SSLContext] = None,
         tcp_connector_kwargs: Dict = None,
-        token_based_endpoints: List[str] = None,
         **kwargs,
     ):
         # pylint: disable=too-many-branches,unused-argument
@@ -143,16 +142,13 @@ class DockerRegistryClientAsync:
             LOGGER.debug("SSL Context: %s", ssl.cert_store_stats())
         if not tcp_connector_kwargs:
             tcp_connector_kwargs = {}
-        if not token_based_endpoints:
-            token_based_endpoints = os.environ.get(
-                "DRCA_TOKEN_BASED_ENDPOINTS",
-                DockerRegistryClientAsync.DEFAULT_TOKEN_BASED_ENDPOINTS,
-            ).split(",")
 
         self.client_session = client_session
         self.client_session_kwargs = client_session_kwargs
         self.credentials_store = credentials_store
-        self.credentials = None
+        # Endpoint Pattern -> credentials
+        self.credentials = None  # type: Optional[Dict[Pattern, str]]
+        self.fallback_basic_auth = fallback_basic_auth
         self.proxies = proxies
         self.proxy_auth = proxy_auth
         self.proxy_no = no_proxy
@@ -160,8 +156,7 @@ class DockerRegistryClientAsync:
         self.ssl = ssl
         self.tcp_connector_kwargs = tcp_connector_kwargs
         # Endpoint -> scope -> token
-        self.tokens = {}
-        self.token_based_endpoints = token_based_endpoints
+        self.tokens = {}  # type: Dict[Pattern, Dict[str, str]]
 
     async def __aenter__(self) -> "DockerRegistryClientAsync":
         return self
@@ -169,18 +164,39 @@ class DockerRegistryClientAsync:
     async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
         await self.close()
 
-    async def add_credentials(self, endpoint: str, credentials: str):
+    async def add_credentials(self, *, credentials: str, endpoint: Union[Pattern, str]):
         """
         Assigns registry credentials in memory for a given endpoint.
 
         Args:
-            endpoint: Registry endpoint for which to assign the credentials.
-            credentials: The credentials to be assigned
+            credentials: The credentials to be assigned.
+            endpoint: Registry endpoint (<hostname>:[<port>]) for which to assign the credentials.
         """
         # Don't shadow self.credentials_store by flagging that credentials have been loaded
         if self.credentials is None:
             await self._load_credentials()
-        self.credentials[endpoint] = {"auth": credentials}
+        if not isinstance(endpoint, Pattern):
+            endpoint = await DockerRegistryClientAsync._get_endpoint_pattern(
+                endpoint=endpoint
+            )
+        self.credentials[endpoint] = credentials
+
+    async def add_token(self, *, endpoint: Union[Pattern, str], scope: str, token: str):
+        """
+        Assigns a registry auth token in memory for a given endpoint and scope.
+
+        Args:
+            endpoint: Registry endpoint (<hostname>:[<port>]) for which to assign the token.
+            scope: Scope of the auth token to be assigned.
+            token: The auth token to be assigned.
+        """
+        if not isinstance(endpoint, Pattern):
+            endpoint = await DockerRegistryClientAsync._get_endpoint_pattern(
+                endpoint=endpoint
+            )
+        if endpoint not in self.tokens:
+            self.tokens[endpoint] = {}
+        self.tokens[endpoint][scope] = token
 
     async def close(self):
         """Gracefully closes this instance."""
@@ -190,7 +206,7 @@ class DockerRegistryClientAsync:
 
     async def _get_auth_token(
         self, *, credentials: str = None, endpoint: str, scope: str
-    ) -> str:
+    ) -> Optional[str]:
         """
         Retrieves the registry auth token for a given scope.
 
@@ -202,52 +218,50 @@ class DockerRegistryClientAsync:
         Returns:
             The corresponding auth token, or None.
         """
-
-        # TODO: Refactor according to: https://docs.docker.com/registry/spec/auth/token/
-        if endpoint not in self.tokens:
-            self.tokens[endpoint] = {}
-
         # https://github.com/docker/distribution/blob/master/docs/spec/auth/token.md
-        if scope not in self.tokens[endpoint]:
-            # Test using HTTP basic authentication to retrieve the www-authenticate response header ...
-            headers = {}
-            if credentials:
-                headers["Authorization"] = f"Basic {credentials}"
+        # Retrieve the www-authenticate response header from the registry endpoint ...
+        client_session = await self._get_client_session()
 
-            client_session = await self._get_client_session()
+        protocol = DockerRegistryClientAsync.DEFAULT_PROTOCOL
+        url = f"{protocol}://{endpoint}/v2/"
+        proxy = await self._get_proxy(endpoint=endpoint, protocol=protocol)
+        client_response = await client_session.get(
+            raise_for_status=False,
+            proxy=proxy,
+            proxy_auth=self.proxy_auth,
+            ssl=self.ssl,
+            url=url,
+        )
+        if (
+            client_response.status != 401
+            or "Www-Authenticate" not in client_response.headers
+        ):
+            return None
+        auth_params = www_authenticate.parse(
+            client_response.headers["Www-Authenticate"]
+        )
+        # Note: Www-Authenticate can also specify "basic".
+        if "bearer" not in auth_params:
+            return None
+        bearer = auth_params["bearer"]
 
-            protocol = DockerRegistryClientAsync.DEFAULT_PROTOCOL
-            url = f"{protocol}://{endpoint}/v2/"
-            proxy = await self._get_proxy(endpoint=endpoint, protocol=protocol)
-            client_response = await client_session.get(
-                headers=headers,
-                raise_for_status=False,
-                proxy=proxy,
-                proxy_auth=self.proxy_auth,
-                ssl=self.ssl,
-                url=url,
-            )
-            auth_params = www_authenticate.parse(
-                client_response.headers["Www-Authenticate"]
-            )
-            bearer = auth_params["bearer"]
-
-            url = GENERIC_OAUTH2_URL_PATTERN.format(
-                bearer["realm"], bearer["service"], scope
-            )
-            client_response = await client_session.get(
-                headers=headers,
-                raise_for_status=True,
-                proxy=proxy,
-                proxy_auth=self.proxy_auth,
-                ssl=self.ssl,
-                url=url,
-            )
-            payload = await client_response.json()
-
-            self.tokens[endpoint][scope] = payload["token"]
-
-        return self.tokens[endpoint][scope]
+        # Retrieve the bearer token from the authorization endpoint ...
+        headers = {}
+        if credentials:
+            headers["Authorization"] = f"Basic {credentials}"
+        url = GENERIC_OAUTH2_URL_PATTERN.format(
+            bearer["realm"], bearer["service"], scope
+        )
+        client_response = await client_session.get(
+            headers=headers,
+            raise_for_status=True,
+            proxy=proxy,
+            proxy_auth=self.proxy_auth,
+            ssl=self.ssl,
+            url=url,
+        )
+        payload = await client_response.json()
+        return payload.get("token", None)
 
     async def _get_client_session(self) -> ClientSession:
         """
@@ -271,9 +285,9 @@ class DockerRegistryClientAsync:
 
         return self.client_session
 
-    async def _get_credentials(self, endpoint: str) -> Optional[str]:
+    async def _get_credentials(self, *, endpoint: str) -> Optional[str]:
         """
-        Retrieves the registry credentials for a given endpoint
+        Retrieves the registry credentials for a given endpoint.
 
         Args:
             endpoint: Registry endpoint for which to retrieve the credentials.
@@ -286,14 +300,23 @@ class DockerRegistryClientAsync:
         if self.credentials is None:
             await self._load_credentials()
 
-        for endpoint_auth in [
-            u for u in self.credentials if endpoint in (u, urlparse(u).netloc)
-        ]:
-            result = self.credentials[endpoint_auth].get("auth", None)
-            if result:
+        for pattern, credentials in self.credentials.items():
+            if pattern.fullmatch(endpoint):
+                result = credentials
                 break
 
         return result
+
+    @staticmethod
+    async def _get_endpoint_pattern(*, endpoint: str) -> Pattern:
+        """Converts a given endpoint to a regular expression pattern that matches the endpoint."""
+
+        # Legacy endpoint formats included the protocol and path segments; convert them to netloc / address ...
+        # Note: urlparse handles many edge-cases, but stores 'netloc' in 'path' if not protocol is specified.
+        if "://" not in endpoint:
+            endpoint = f"proto://{endpoint}"
+        endpoint = urlparse(endpoint).netloc
+        return re.compile(f"^{re.escape(endpoint)}$")
 
     async def _get_proxy(self, *, endpoint: str, protocol: str) -> Optional[str]:
         """
@@ -308,7 +331,7 @@ class DockerRegistryClientAsync:
         return result
 
     async def _get_request_headers(
-        self, image_name: ImageName, headers: LooseHeaders = None, *, scope=None
+        self, *, image_name: ImageName, headers: LooseHeaders = None, scope=None
     ) -> LooseHeaders:
         """
         Generates request headers that contain registry credentials for a given registry endpoint.
@@ -332,19 +355,19 @@ class DockerRegistryClientAsync:
             headers["User-Agent"] = f"docker-registry-client-async/{__version__}"
 
         endpoint = image_name.resolve_endpoint()
-        credentials = await self._get_credentials(endpoint)
-        if endpoint in self.token_based_endpoints:
-            token = await self._get_auth_token(
-                credentials=credentials, endpoint=endpoint, scope=scope
-            )
+        credentials = await self._get_credentials(endpoint=endpoint)
+        token = await self._get_token(
+            credentials=credentials, endpoint=endpoint, scope=scope
+        )
+        if token:
             headers["Authorization"] = f"Bearer {token}"
-        elif credentials:
+        elif self.fallback_basic_auth and credentials:
             headers["Authorization"] = f"Basic {credentials}"
 
         return headers
 
     @staticmethod
-    def _get_image_name_from_blob_upload(location: str) -> ImageName:
+    def _get_image_name_from_blob_upload(*, location: str) -> ImageName:
         """
         Parses and returns the image name from the location returned for a blob upload.
 
@@ -361,7 +384,7 @@ class DockerRegistryClientAsync:
         return ImageName(image, endpoint=parts.netloc)
 
     @staticmethod
-    def _get_protocol_from_blob_upload(location: str) -> str:
+    def _get_protocol_from_blob_upload(*, location: str) -> str:
         """
         Parses and returns the protocol from the location returned for a blob upload
 
@@ -372,6 +395,38 @@ class DockerRegistryClientAsync:
             The corresponding protocol.
         """
         return location.split("://")[0].lower()
+
+    async def _get_token(
+        self, *, credentials: str = None, endpoint: str, scope: str
+    ) -> Optional[str]:
+        """
+        Retrieves the registry auth token for a given endpoint.
+
+        Args:
+            credentials: The credentials to use to retrieve the auth token.
+            endpoint: Registry endpoint for which to retrieve the token.
+            scope: The scope of the auth token.
+
+        Returns:
+            The corresponding registry auth token, or None.
+        """
+        # TODO: Implement proper token lifecycle ...
+        key = None
+        for pattern in self.tokens:
+            if pattern.fullmatch(endpoint):
+                key = pattern
+                break
+        if key is None:
+            key = await DockerRegistryClientAsync._get_endpoint_pattern(
+                endpoint=endpoint
+            )
+        if scope not in self.tokens.get(key, {}):
+            token = await self._get_auth_token(
+                credentials=credentials, endpoint=endpoint, scope=scope
+            )
+            await self.add_token(endpoint=key, scope=scope, token=token)
+
+        return self.tokens[key][scope]
 
     async def _load_credentials(self):
         """Retrieves the registry credentials from the docker registry credentials store."""
@@ -389,8 +444,13 @@ class DockerRegistryClientAsync:
             if self.credentials_store.is_file():
                 async with aiofiles.open(self.credentials_store, mode="rb") as file:
                     credentials = json.loads(await file.read()).get("auths", {})
-                for endpoint in credentials:
-                    self.credentials[endpoint] = credentials[endpoint]
+                for endpoint, auth in credentials.items():
+                    endpoint = await DockerRegistryClientAsync._get_endpoint_pattern(
+                        endpoint=endpoint
+                    )
+                    await self.add_credentials(
+                        endpoint=endpoint, credentials=auth["auth"]
+                    )
 
     # Docker Registry V2 API methods
 
@@ -411,7 +471,7 @@ class DockerRegistryClientAsync:
         """
         protocol = kwargs.pop("protocol", DockerRegistryClientAsync.DEFAULT_PROTOCOL)
         headers = await self._get_request_headers(
-            image_name,
+            image_name=image_name,
             scope=DockerAuthentication.SCOPE_REPOSITORY_PUSH_PATTERN.format(
                 image_name.resolve_image()
             ),
@@ -465,12 +525,14 @@ class DockerRegistryClientAsync:
             The underlying client response.
         """
         kwargs.pop("protocol", None)
-        protocol = DockerRegistryClientAsync._get_protocol_from_blob_upload(location)
+        protocol = DockerRegistryClientAsync._get_protocol_from_blob_upload(
+            location=location
+        )
         image_name = DockerRegistryClientAsync._get_image_name_from_blob_upload(
-            location
+            location=location
         )
         headers = await self._get_request_headers(
-            image_name,
+            image_name=image_name,
             scope=DockerAuthentication.SCOPE_REPOSITORY_PUSH_PATTERN.format(
                 image_name.resolve_image()
             ),
@@ -525,7 +587,7 @@ class DockerRegistryClientAsync:
         """
         protocol = kwargs.pop("protocol", DockerRegistryClientAsync.DEFAULT_PROTOCOL)
         headers = await self._get_request_headers(
-            image_name,
+            image_name=image_name,
             scope=DockerAuthentication.SCOPE_REPOSITORY_PUSH_PATTERN.format(
                 image_name.resolve_image()
             ),
@@ -595,8 +657,11 @@ class DockerRegistryClientAsync:
         if accept is None:
             accept = DockerRegistryClientAsync.DEFAULT_MEDIA_TYPES_BLOB
         headers = await self._get_request_headers(
-            image_name,
-            {"Accept": accept, "Content-Type": MediaTypes.APPLICATION_OCTET_STREAM},
+            headers={
+                "Accept": accept,
+                "Content-Type": MediaTypes.APPLICATION_OCTET_STREAM,
+            },
+            image_name=image_name,
             scope=DockerAuthentication.SCOPE_REPOSITORY_PULL_PATTERN.format(
                 image_name.resolve_image()
             ),
@@ -690,12 +755,14 @@ class DockerRegistryClientAsync:
             The underlying client response.
         """
         kwargs.pop("protocol", None)
-        protocol = DockerRegistryClientAsync._get_protocol_from_blob_upload(location)
+        protocol = DockerRegistryClientAsync._get_protocol_from_blob_upload(
+            location=location
+        )
         image_name = DockerRegistryClientAsync._get_image_name_from_blob_upload(
-            location
+            location=location
         )
         headers = await self._get_request_headers(
-            image_name,
+            image_name=image_name,
             scope=DockerAuthentication.SCOPE_REPOSITORY_PULL_PATTERN.format(
                 image_name.resolve_image()
             ),
@@ -754,8 +821,8 @@ class DockerRegistryClientAsync:
         protocol = kwargs.pop("protocol", DockerRegistryClientAsync.DEFAULT_PROTOCOL)
 
         headers = await self._get_request_headers(
-            image_name,
-            {"Accept": MediaTypes.APPLICATION_JSON},
+            headers={"Accept": MediaTypes.APPLICATION_JSON},
+            image_name=image_name,
             scope=DockerAuthentication.SCOPE_REGISTRY_CATALOG,
         )
         url = f"{protocol}://{image_name.resolve_endpoint()}/v2/_catalog"
@@ -823,8 +890,8 @@ class DockerRegistryClientAsync:
         protocol = kwargs.pop("protocol", DockerRegistryClientAsync.DEFAULT_PROTOCOL)
 
         headers = await self._get_request_headers(
-            image_name,
-            {"Accept": accept},
+            headers={"Accept": accept},
+            image_name=image_name,
             scope=DockerAuthentication.SCOPE_REPOSITORY_PULL_PATTERN.format(
                 image_name.resolve_image()
             ),
@@ -918,8 +985,8 @@ class DockerRegistryClientAsync:
         protocol = kwargs.pop("protocol", DockerRegistryClientAsync.DEFAULT_PROTOCOL)
 
         headers = await self._get_request_headers(
-            image_name,
-            {"Accept": MediaTypes.APPLICATION_JSON},
+            headers={"Accept": MediaTypes.APPLICATION_JSON},
+            image_name=image_name,
             scope=DockerAuthentication.SCOPE_REPOSITORY_PULL_PATTERN.format(
                 image_name.resolve_image()
             ),
@@ -1008,8 +1075,8 @@ class DockerRegistryClientAsync:
         protocol = kwargs.pop("protocol", DockerRegistryClientAsync.DEFAULT_PROTOCOL)
 
         headers = await self._get_request_headers(
-            image_name,
-            {"Content-Type": MediaTypes.APPLICATION_JSON},
+            headers={"Content-Type": MediaTypes.APPLICATION_JSON},
+            image_name=image_name,
             scope=DockerAuthentication.SCOPE_REGISTRY_CATALOG,
         )
         url = f"{protocol}://{image_name.resolve_endpoint()}/v{version}/"
@@ -1066,7 +1133,7 @@ class DockerRegistryClientAsync:
         protocol = kwargs.pop("protocol", DockerRegistryClientAsync.DEFAULT_PROTOCOL)
         url = f"{protocol}://{image_name.resolve_endpoint()}/v2/{image_name.resolve_image()}/blobs/{digest}"
         headers = await self._get_request_headers(
-            image_name,
+            image_name=image_name,
             scope=DockerAuthentication.SCOPE_REPOSITORY_PULL_PATTERN.format(
                 image_name.resolve_image()
             ),
@@ -1139,8 +1206,8 @@ class DockerRegistryClientAsync:
         protocol = kwargs.pop("protocol", DockerRegistryClientAsync.DEFAULT_PROTOCOL)
 
         headers = await self._get_request_headers(
-            image_name,
-            {"Accept": accept},
+            headers={"Accept": accept},
+            image_name=image_name,
             scope=DockerAuthentication.SCOPE_REPOSITORY_PULL_PATTERN.format(
                 image_name.resolve_image()
             ),
@@ -1206,13 +1273,15 @@ class DockerRegistryClientAsync:
             The underlying client response.
         """
         kwargs.pop("protocol", None)
-        protocol = DockerRegistryClientAsync._get_protocol_from_blob_upload(location)
+        protocol = DockerRegistryClientAsync._get_protocol_from_blob_upload(
+            location=location
+        )
         image_name = DockerRegistryClientAsync._get_image_name_from_blob_upload(
-            location
+            location=location
         )
         headers = await self._get_request_headers(
-            image_name,
-            {"Content-Type": MediaTypes.APPLICATION_OCTET_STREAM},
+            headers={"Content-Type": MediaTypes.APPLICATION_OCTET_STREAM},
+            image_name=image_name,
             scope=DockerAuthentication.SCOPE_REPOSITORY_PULL_PATTERN.format(
                 image_name.resolve_image()
             ),
@@ -1330,8 +1399,8 @@ class DockerRegistryClientAsync:
         protocol = kwargs.pop("protocol", DockerRegistryClientAsync.DEFAULT_PROTOCOL)
         url = f"{protocol}://{image_name.resolve_endpoint()}/v2/{image_name.resolve_image()}/blobs/uploads/"
         headers = await self._get_request_headers(
-            image_name,
-            {"Content-Type": MediaTypes.APPLICATION_OCTET_STREAM},
+            headers={"Content-Type": MediaTypes.APPLICATION_OCTET_STREAM},
+            image_name=image_name,
             scope=DockerAuthentication.SCOPE_REPOSITORY_PUSH_PATTERN.format(
                 image_name.resolve_image()
             ),
@@ -1431,13 +1500,15 @@ class DockerRegistryClientAsync:
             The underlying client response.
         """
         kwargs.pop("protocol", None)
-        protocol = DockerRegistryClientAsync._get_protocol_from_blob_upload(location)
+        protocol = DockerRegistryClientAsync._get_protocol_from_blob_upload(
+            location=location
+        )
         image_name = DockerRegistryClientAsync._get_image_name_from_blob_upload(
-            location
+            location=location
         )
         headers = await self._get_request_headers(
-            image_name,
-            {"Content-Type": MediaTypes.APPLICATION_OCTET_STREAM},
+            headers={"Content-Type": MediaTypes.APPLICATION_OCTET_STREAM},
+            image_name=image_name,
             scope=DockerAuthentication.SCOPE_REPOSITORY_PUSH_PATTERN.format(
                 image_name.resolve_image()
             ),
@@ -1568,8 +1639,8 @@ class DockerRegistryClientAsync:
         protocol = kwargs.pop("protocol", DockerRegistryClientAsync.DEFAULT_PROTOCOL)
 
         headers = await self._get_request_headers(
-            image_name,
-            {"Content-Type": media_type},
+            headers={"Content-Type": media_type},
+            image_name=image_name,
             scope=DockerAuthentication.SCOPE_REPOSITORY_PUSH_PATTERN.format(
                 image_name.resolve_image()
             ),
