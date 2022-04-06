@@ -1,5 +1,13 @@
 # docker-registry-client-async
 
+[![pypi version](https://img.shields.io/pypi/v/docker-registry-client-async.svg)](https://pypi.org/project/docker-registry-client-async)
+[![build status](https://img.shields.io/travis/crashvb/docker-registry-client-async.svg)](https://app.travis-ci.com/github/crashvb/docker-registry-client-async)
+[![coverage status](https://coveralls.io/repos/github/crashvb/docker-registry-client-async/badge.svg)](https://coveralls.io/github/crashvb/docker-registry-client-async)
+[![python versions](https://img.shields.io/pypi/pyversions/docker-registry-client-async.svg)](https://pypi.org/project/docker-registry-client-async)
+[![linting](https://img.shields.io/badge/linting-pylint-yellowgreen)](https://github.com/PyCQA/pylint)
+[![code style](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+[![license](https://img.shields.io/github/license/crashvb/docker-registry-client-async.svg)](https://github.com/crashvb/docker-registry-client-async/blob/master/LICENSE.md)
+
 ## Overview
 
 An AIOHTTP based Python REST client for the Docker Registry.
@@ -32,10 +40,6 @@ if __name__ == "__main__":
     loop.run_until_complete(main())
 
 ```
-
-## Compatibility
-
-* Tested with python 3.8
 
 ## Installation
 ### From [pypi.org](https://pypi.org/project/docker-registry-client-async/)

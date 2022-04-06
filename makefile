@@ -2,7 +2,7 @@
 
 -include makefile.config
 
-.PHONY: black build clean default deploy deploy-test purge release sign test test-all test-all-verbose test-code test-package test-verbose venv .venv verify
+.PHONY: black build clean default deploy deploy-test purge release sign test test-all test-all-verbose test-code test-coverage test-package test-verbose venv .venv verify
 
 tmpdir:=$(shell mktemp --directory)
 
@@ -55,8 +55,10 @@ test-all-verbose:
 	python -m pytest --log-cli-level debug --allow-online-deletion $(args)
 
 test-code:
-	# Note: https://github.com/PyCQA/pylint/issues/289
-	python -m pylint --disable C0330,R0801 --max-line-length=120 docker_registry_client_async tests
+	python -m pylint --disable R0801 --max-line-length=120 docker_registry_client_async tests
+
+test-coverage:
+	coverage run --source=docker_registry_client_async -m pytest --log-cli-level=info $(args)
 
 test-package: build
 	python -m venv $(tmpdir)
