@@ -2,7 +2,7 @@
 
 -include makefile.config
 
-.PHONY: black build clean default deploy deploy-test purge release sign test test-all test-all-verbose test-code test-coverage test-package test-verbose venv .venv verify
+.PHONY: black build clean default deploy deploy-test purge release sign test test-all test-all-verbose test-code test-coverage test-coverage-all test-coverage-all-verbose test-package test-verbose venv .venv verify
 
 tmpdir:=$(shell mktemp --directory)
 
@@ -59,6 +59,13 @@ test-code:
 
 test-coverage:
 	coverage run --source=docker_registry_client_async -m pytest --log-cli-level=info $(args)
+
+test-coverage-all:
+	coverage run --source=docker_registry_client_async -m pytest --log-cli-level=info --allow-online-deletion $(args)
+
+test-coverage-all-verbose:
+	coverage run --source=docker_registry_client_async -m pytest --log-cli-level=debug --allow-online-deletion $(args)
+	coverage report
 
 test-package: build
 	python -m venv $(tmpdir)
