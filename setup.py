@@ -38,6 +38,7 @@ setup(
             "pylint",
             "pytest",
             "pytest-asyncio",
+            "pytest-cov",
             "pytest-docker-registry-fixtures>=0.3.2",
             "pytest-docker-squid-fixtures>=0.1.2",
             "twine",
@@ -67,6 +68,7 @@ setup(
     tests_require=[
         "pytest",
         "pytest-asyncio",
+        "pytest-cov",
         "pytest-docker-registry-fixtures",
         "pytest-docker-squid-fixtures",
     ],

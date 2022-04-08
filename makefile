@@ -2,7 +2,7 @@
 
 -include makefile.config
 
-.PHONY: black build clean default deploy deploy-test purge release sign test test-all test-all-verbose test-code test-coverage test-coverage-all test-coverage-all-verbose test-package test-verbose venv .venv verify
+.PHONY: black build clean default deploy deploy-test purge release sign test test-all test-all-verbose test-code test-coverage test-coverage-all test-coverage-all-verbose test-coverage-verbose test-package test-verbose venv .venv verify
 
 tmpdir:=$(shell mktemp --directory)
 
@@ -46,26 +46,28 @@ sign:
 	find dist -type f \( -iname "*.tar.gz" -o -iname "*.whl" \) -exec gpg --armor --detach-sig --local-user=$(keyid) --sign {} \;
 
 test:
-	python -m pytest --log-cli-level info $(args)
+	python -m pytest --cov=docker_registry_client_async --cov-report= --log-cli-level info $(args)
 
 test-all:
-	python -m pytest --log-cli-level info --allow-online-deletion $(args)
+	python -m pytest --cov=docker_registry_client_async --cov-report= --log-cli-level info --allow-online-deletion $(args)
 
 test-all-verbose:
-	python -m pytest --log-cli-level debug --allow-online-deletion $(args)
+	python -m pytest --cov=docker_registry_client_async --cov-report= --log-cli-level debug --allow-online-deletion $(args)
 
 test-code:
-	python -m pylint --disable R0801 --max-line-length=120 docker_registry_client_async tests
+	python -m pylint --disable=R0401,R0801,W0511 --max-line-length=120 docker_registry_client_async tests
 
-test-coverage:
-	coverage run --source=docker_registry_client_async -m pytest --log-cli-level=info $(args)
+test-coverage: test
+	coverage report --fail-under=80
 
-test-coverage-all:
-	coverage run --source=docker_registry_client_async -m pytest --log-cli-level=info --allow-online-deletion $(args)
+test-coverage-all: test-all
+	coverage report --fail-under=80
 
-test-coverage-all-verbose:
-	coverage run --source=docker_registry_client_async -m pytest --log-cli-level=debug --allow-online-deletion $(args)
-	coverage report
+test-coverage-all-verbose: test-all-verbose
+	coverage report --fail-under=80
+
+test-coverage-verbose: test-verbose
+	coverage report --fail-under=80
 
 test-package: build
 	python -m venv $(tmpdir)
@@ -76,7 +78,7 @@ test-package: build
 	rm --force --recursive $(tmpdir)
 
 test-verbose:
-	python -m pytest -r sx --log-cli-level debug $(args)
+	python -m pytest -r sx --cov=docker_registry_client_async --cov-report= --log-cli-level debug $(args)
 
 .venv:
 	python -m venv .venv
@@ -89,7 +91,7 @@ verify:
 	find dist -type f -iname "*.asc" -exec gpg --verify {} \;
 
 clean:
-	rm --force --recursive .eggs build dist *.egg-info
+	rm --force --recursive .eggs build dist .coverage *.egg-info
 	find . -type f -name "*.pyc" -delete
 	find . -type d -name __pycache__ -delete
 

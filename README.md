@@ -1,9 +1,9 @@
 # docker-registry-client-async
 
 [![pypi version](https://img.shields.io/pypi/v/docker-registry-client-async.svg)](https://pypi.org/project/docker-registry-client-async)
-[![build status](https://img.shields.io/travis/crashvb/docker-registry-client-async.svg)](https://app.travis-ci.com/github/crashvb/docker-registry-client-async)
+[![build status](https://github.com/crashvb/docker-registry-client-async/actions/workflows/main.yml/badge.svg)](https://github.com/crashvb/docker-registry-client-async/actions)
 [![coverage status](https://coveralls.io/repos/github/crashvb/docker-registry-client-async/badge.svg)](https://coveralls.io/github/crashvb/docker-registry-client-async)
-[![python versions](https://img.shields.io/pypi/pyversions/docker-registry-client-async.svg)](https://pypi.org/project/docker-registry-client-async)
+[![python versions](https://img.shields.io/pypi/pyversions/docker-registry-client-async.svg?logo=python&logoColor=FBE072)](https://pypi.org/project/docker-registry-client-async)
 [![linting](https://img.shields.io/badge/linting-pylint-yellowgreen)](https://github.com/PyCQA/pylint)
 [![code style](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 [![license](https://img.shields.io/github/license/crashvb/docker-registry-client-async.svg)](https://github.com/crashvb/docker-registry-client-async/blob/master/LICENSE.md)

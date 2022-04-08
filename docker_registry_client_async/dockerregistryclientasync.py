@@ -13,7 +13,7 @@ from http import HTTPStatus
 from pathlib import Path
 from re import Pattern
 from ssl import create_default_context, SSLContext
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, Optional, Union
 from urllib.parse import urlparse
 
 import aiofiles
