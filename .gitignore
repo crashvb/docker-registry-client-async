@@ -7,5 +7,6 @@ dist
 tmp
 
 *.egg-info
+*.local
 *.pyc
 *.swp

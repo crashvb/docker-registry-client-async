@@ -68,7 +68,6 @@ setup(
     tests_require=[
         "pytest",
         "pytest-asyncio",
-        "pytest-cov",
         "pytest-docker-registry-fixtures",
         "pytest-docker-squid-fixtures",
     ],
