@@ -62,14 +62,14 @@ $ python -m pip install --editable .[dev]
 
 | Variable | Default Value | Description |
 | ---------| ------------- | ----------- |
-| DRCA_CACERTS | | The path to the certificate trust store.
-| DRCA_CHUNK_SIZE | 2097152 | The chunk size to use then replicating content.
-| DRCA_CREDENTIALS_STORE | ~/.docker/config.json | The credentials store from which to retrieve registry credentials.
-| DRCA_DEBUG | | Adds additional debug logging, mainly for troubleshooting and development.
-| DRCA_DEFAULT_REGISTRY | index.docker.io | The default registry index to use when resolving image names.
-| DRCA_DEFAULT_NAMESPACE | library | The default registry namespace to use when resolving image names.
-| DRCA_DEFAULT_TAG | latest | The default image tag to use when resolving image names.
-| DRCA_PROTOCOL | https | The default transport protocol to when communicating with a registry.
+| DRCA\_CACERTS | | The path to the certificate trust store.
+| DRCA\_CHUNK\_SIZE | 2097152 | The chunk size to use then replicating content.
+| DRCA\_CREDENTIALS\_STORE | ~/.docker/config.json | The credentials store from which to retrieve registry credentials.
+| DRCA\_DEBUG | | Adds additional debug logging, mainly for troubleshooting and development.
+| DRCA\_DEFAULT\_REGISTRY | index.docker.io | The default registry index to use when resolving image names.
+| DRCA\_DEFAULT\_NAMESPACE | library | The default registry namespace to use when resolving image names.
+| DRCA\_DEFAULT\_TAG | latest | The default image tag to use when resolving image names.
+| DRCA\_PROTOCOL | https | The default transport protocol to when communicating with a registry.
 
 ## Development
 
