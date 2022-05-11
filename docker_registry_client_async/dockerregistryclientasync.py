@@ -76,7 +76,7 @@ class DockerRegistryClientAsync:
         f"{OCIMediaTypes.IMAGE_MANIFEST_V1};q=0.9,"
         f"{DockerMediaTypes.DISTRIBUTION_MANIFEST_LIST_V2};q=0.8,"
         f"{OCIMediaTypes.IMAGE_INDEX_V1};q=0.7,"
-        f"{MediaTypes.APPLICATION_JSON};q=0.6"
+        f"{MediaTypes.APPLICATION_JSON};q=0.6,"
         f"{DockerMediaTypes.DISTRIBUTION_MANIFEST_V1};q=0.5"
     )
     DEFAULT_PROTOCOL = os.environ.get("DRCA_DEFAULT_PROTOCOL", "https")

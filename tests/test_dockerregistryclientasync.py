@@ -2342,5 +2342,27 @@ async def test_issue_27(
     docker_registry_client_async.client_session_kwargs["connector"].close()
 
 
+@pytest.mark.online
+async def test_issue_29():
+    """Test issue #29."""
+    image_name = ImageName.parse(
+        "busybox:1.23.2@sha256:2824fe048727a69da66cf1be00cebd3bb9cfe1f238473693aa9358b411208527"
+    )
+    async with DockerRegistryClientAsync() as docker_registry_client_async:
+        LOGGER.debug("Checking manifest for: %s ...", image_name)
+        response = await docker_registry_client_async.get_manifest(image_name)
+    assert response
+    assert response.client_response
+    assert response.client_response.status == HTTPStatus.OK
+    assert (
+        response.client_response.headers["Docker-Content-Digest"]
+        == image_name.resolve_digest()
+    )
+    assert (
+        response.manifest.get_media_type()
+        == DockerMediaTypes.DISTRIBUTION_MANIFEST_V1_SIGNED
+    )
+
+
 # TODO: Total image pull (with exists() checks)
 # TODO: Total image push

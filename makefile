@@ -93,7 +93,7 @@ verify:
 	find dist -type f -iname "*.asc" -exec gpg --verify {} \;
 
 clean:
-	rm --force --recursive .coverage .eggs build dist *.egg-info
+	rm --force --recursive .coverage* .eggs build dist *.egg-info
 	find . -type f -name "*.pyc" -delete
 	find . -type d -name __pycache__ -delete
 
