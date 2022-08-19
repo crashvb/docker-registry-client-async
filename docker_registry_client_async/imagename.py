@@ -202,7 +202,10 @@ class ImageName:
         Returns:
             The explicit name of the image, with namespace.
         """
-        if "/" not in self.image:
+        if (
+            "/" not in self.image
+            and self.resolve_endpoint() == ImageName.DEFAULT_ENDPOINT
+        ):
             return f"{ImageName.DEFAULT_NAMESPACE}/{self.image}"
 
         return self.image

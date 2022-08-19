@@ -207,7 +207,8 @@ def test_resolve_image(image_data: TypingGetTestData):
     """Test image resolution."""
     expected = (
         image_data.image
-        if "/" in image_data.image
+        if ("/" in image_data.image
+            or image_data.endpoint not in (ImageName.DEFAULT_ENDPOINT, None))
         else f"{ImageName.DEFAULT_NAMESPACE}/{image_data.image}"
     )
     assert image_data.object.resolve_image() == expected
