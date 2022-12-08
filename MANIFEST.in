@@ -1,0 +1,1 @@
+include docker_registry_client_async/py.typed

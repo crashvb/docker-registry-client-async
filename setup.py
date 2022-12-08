@@ -47,7 +47,7 @@ setup(
         "test": ["pytest-xdist"],
     },
     include_package_data=True,
-    package_data={'docker_registry_client_async': ['py.typed']},
+    package_data={"docker_registry_client_async": ["py.typed"]},
     python_requires=">=3.8",
     install_requires=[
         "aiodns",
