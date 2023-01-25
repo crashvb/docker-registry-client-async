@@ -3,13 +3,14 @@
 # pylint: disable=redefined-outer-name,protected-access
 
 """ImageName tests."""
-
 from time import time
 from typing import Generator, NamedTuple
 
 import pytest
 
 from docker_registry_client_async import FormattedSHA256, ImageName
+
+from tests.testutils import imagename_default_namespace
 
 
 class TypingGetTestData(NamedTuple):
@@ -108,7 +109,7 @@ def test___str__(image_data: TypingGetTestData):
         assert image_data.digest in string
     else:
         assert "sha256" not in string
-    if "/" not in image_data.image:
+    if "/" not in image_data.image and ImageName.DEFAULT_NAMESPACE:
         assert ImageName.DEFAULT_NAMESPACE not in string
     if image_data.endpoint:
         assert image_data.endpoint in string
@@ -144,7 +145,8 @@ def test_parse_string(image_data: TypingGetTestData):
         assert not result.endpoint.endswith("/")
     assert result.image == image_data.image
     assert not result.image.startswith("/")
-    assert ImageName.DEFAULT_NAMESPACE not in str(result.image)
+    if ImageName.DEFAULT_NAMESPACE:
+        assert ImageName.DEFAULT_NAMESPACE not in str(result.image)
     assert result.tag == image_data.tag
     if image_data.tag:
         assert ImageName.DEFAULT_TAG not in str(result.tag)
@@ -160,7 +162,8 @@ def test_parse(image_data: TypingGetTestData):
     if image_data.endpoint:
         assert ImageName.DEFAULT_ENDPOINT not in image_name.endpoint
     assert image_name.image == image_data.image
-    assert ImageName.DEFAULT_NAMESPACE not in image_name.image
+    if ImageName.DEFAULT_NAMESPACE:
+        assert ImageName.DEFAULT_NAMESPACE not in image_name.image
     assert image_name.tag == image_data.tag
     if image_data.tag:
         assert ImageName.DEFAULT_TAG not in image_name.tag
@@ -207,7 +210,7 @@ def test_resolve_image(image_data: TypingGetTestData):
     """Test image resolution."""
     expected = (
         image_data.image
-        if "/" in image_data.image
+        if ("/" in image_data.image or not ImageName.DEFAULT_NAMESPACE)
         else f"{ImageName.DEFAULT_NAMESPACE}/{image_data.image}"
     )
     assert image_data.object.resolve_image() == expected
@@ -228,29 +231,44 @@ def test_set_digest(image_data: TypingGetTestData):
     """Tests digest assignment."""
     assert image_data.object.digest == image_data.digest
     value = FormattedSHA256.calculate(f"data:{time()}".encode(encoding="utf-8"))
-    assert image_data.object.set_digest(value) == image_data.object
-    assert image_data.object.digest == value
+    image_name = image_data.object.clone()
+    assert image_name.set_digest(value) == image_name
+    assert image_name.digest == value
 
 
 def test_set_endpoint(image_data: TypingGetTestData):
     """Tests endpoint assignment."""
     assert image_data.object.endpoint == image_data.endpoint
     value = f"data:{time()}"
-    assert image_data.object.set_endpoint(value) == image_data.object
-    assert image_data.object.endpoint == value
+    image_name = image_data.object.clone()
+    assert image_name.set_endpoint(value) == image_name
+    assert image_name.endpoint == value
 
 
 def test_set_image(image_data: TypingGetTestData):
     """Tests image assignment."""
     assert image_data.object.image == image_data.image
     value = f"data/{time()}"
-    assert image_data.object.set_image(value) == image_data.object
-    assert image_data.object.image == value
+    image_name = image_data.object.clone()
+    assert image_name.set_image(value) == image_name
+    assert image_name.image == value
 
 
 def test_set_tag(image_data: TypingGetTestData):
     """Tests tag assignment."""
     assert image_data.object.tag == image_data.tag
     value = f"data:{time()}"
-    assert image_data.object.set_tag(value) == image_data.object
-    assert image_data.object.tag == value
+    image_name = image_data.object.clone()
+    assert image_name.set_tag(value) == image_name
+    assert image_name.tag == value
+
+
+def test_issue_31(image_data: TypingGetTestData):
+    """Test issue #31."""
+    with imagename_default_namespace(""):
+        expected = (
+            image_data.image
+            if ("/" in image_data.image or not ImageName.DEFAULT_NAMESPACE)
+            else f"{ImageName.DEFAULT_NAMESPACE}/{image_data.image}"
+        )
+        assert image_data.object.resolve_image() == expected

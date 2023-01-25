@@ -3,12 +3,15 @@
 """Utility classes."""
 
 import hashlib
+import os
 
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Union
 
 import aiofiles
 
+from docker_registry_client_async import ImageName
 from docker_registry_client_async.formattedsha256 import FormattedSHA256
 from docker_registry_client_async.utils import CHUNK_SIZE
 
@@ -41,3 +44,12 @@ async def hash_file(path: Path) -> FormattedSHA256:
                 break
             hasher.update(chunk)
     return FormattedSHA256(hasher.hexdigest())
+
+
+@contextmanager
+def imagename_default_namespace(namespace: str):
+    """Context manager to globally define the ImageName default namespace."""
+    old = ImageName.DEFAULT_NAMESPACE
+    ImageName.DEFAULT_NAMESPACE = namespace
+    yield None
+    ImageName.DEFAULT_NAMESPACE = old

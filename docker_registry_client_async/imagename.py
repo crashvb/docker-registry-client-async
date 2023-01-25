@@ -202,7 +202,7 @@ class ImageName:
         Returns:
             The explicit name of the image, with namespace.
         """
-        if "/" not in self.image:
+        if "/" not in self.image and ImageName.DEFAULT_NAMESPACE:
             return f"{ImageName.DEFAULT_NAMESPACE}/{self.image}"
 
         return self.image
