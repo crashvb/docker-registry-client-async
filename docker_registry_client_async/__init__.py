@@ -17,4 +17,4 @@ from .specs import (
     RedHatAuthentication,
 )
 
-__version__ = "0.2.10"
+__version__ = "0.2.11.dev0"
