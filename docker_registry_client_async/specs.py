@@ -25,7 +25,7 @@ class DockerAuthentication:
 
 
 class DockerMediaTypes:
-    """https://github.com/docker/distribution/blob/master/docs/spec/manifest-v2-2.md#manifest-list"""
+    """https://github.com/docker/distribution/blob/master/docs/spec/manifest-v2-2.md"""
 
     CONTAINER_IMAGE_V1 = "application/vnd.docker.container.image.v1+json"
     DISTRIBUTION_MANIFEST_LIST_V2 = (
