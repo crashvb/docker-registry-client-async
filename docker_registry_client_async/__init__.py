@@ -17,4 +17,19 @@ from .specs import (
     RedHatAuthentication,
 )
 
+__all__ = (
+    "DockerRegistryClientAsync",
+    "FormattedSHA256",
+    "ImageName",
+    "JsonBytes",
+    "Manifest",
+    "DockerAuthentication",
+    "DockerMediaTypes",
+    "Indices",
+    "MediaTypes",
+    "OCIMediaTypes",
+    "QuayAuthentication",
+    "RedHatAuthentication",
+)
+
 __version__ = "0.2.11.dev0"
