@@ -20,6 +20,7 @@ CHUNK_SIZE = int(os.environ.get("DRCA_CHUNK_SIZE", 2097152))
 
 def async_wrap(func):
     """Decorates a given function for execution via an executor."""
+
     # https://dev.to/0xbf/turn-sync-function-to-async-python-tips-58nn
     @wraps(func)
     async def run_in_executor(*args, loop=None, executor=None, **kwargs):

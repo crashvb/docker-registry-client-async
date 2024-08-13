@@ -7,6 +7,8 @@ import logging
 from socket import AF_INET
 
 import asyncio
+from typing import List
+
 import pytest
 
 from aiodns import DNSResolver
@@ -18,16 +20,16 @@ pytestmark = [pytest.mark.asyncio]
 
 LOGGER = logging.getLogger(__name__)
 
+NAMESERVERS = ["8.8.8.8", "8.8.4.4"]
+
 
 @pytest.mark.parametrize(
     "domain,name_unqualified",
     [("google.com", "calendar"), ("microsoft.com", "answers")],
 )
-async def test_aiodns_domain_search_list(
-    domain: str, name_unqualified: str
-):
+async def test_aiodns_domain_search_list(domain: str, name_unqualified: str):
     """Test that the domain search list is functioning."""
-    dns_resolver = DNSResolver(loop=asyncio.get_running_loop())
+    dns_resolver = DNSResolver(loop=asyncio.get_running_loop(), nameservers=NAMESERVERS)
     name_qualified = f"{name_unqualified}.{domain}"
 
     # Fully Qualified
@@ -44,7 +46,9 @@ async def test_aiodns_domain_search_list(
         await dns_resolver.gethostbyname(name_unqualified, AF_INET)
     assert "Domain name not found" in str(exception.value)
 
-    dns_resolver = DNSResolver(domains=[domain], loop=asyncio.get_running_loop())
+    dns_resolver = DNSResolver(
+        domains=[domain], loop=asyncio.get_running_loop(), nameservers=NAMESERVERS
+    )
 
     # Unqualified w/ domain search list
     response = await dns_resolver.gethostbyname(
@@ -62,11 +66,11 @@ async def test_aiodns_domain_search_list(
     "domain,name_unqualified",
     [("google.com", "calendar"), ("microsoft.com", "answers")],
 )
-async def test_aiohttp_domain_search_list(
-    domain: str, name_unqualified: str
-):
+async def test_aiohttp_domain_search_list(domain: str, name_unqualified: str):
     """Test that the domain search list is functioning."""
-    async_resolver = AsyncResolver(loop=asyncio.get_running_loop())
+    async_resolver = AsyncResolver(
+        loop=asyncio.get_running_loop(), nameservers=NAMESERVERS
+    )
     name_qualified = f"{name_unqualified}.{domain}"
 
     # Fully Qualified
@@ -81,7 +85,9 @@ async def test_aiohttp_domain_search_list(
         await async_resolver.resolve(name_unqualified, family=AF_INET)
     assert "Domain name not found" in str(exception.value)
 
-    async_resolver = AsyncResolver(domains=[domain], loop=asyncio.get_running_loop())
+    async_resolver = AsyncResolver(
+        domains=[domain], loop=asyncio.get_running_loop(), nameservers=NAMESERVERS
+    )
 
     # Unqualified w/ domain search list
     response = await async_resolver.resolve(name_unqualified, family=AF_INET)

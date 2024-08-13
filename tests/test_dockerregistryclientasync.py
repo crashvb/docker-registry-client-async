@@ -124,9 +124,9 @@ def get_identifier_map(known_good_image: TypingKnownGoodImage) -> Dict[ImageName
         ] = media_type
         if media_type != DockerMediaTypes.DISTRIBUTION_MANIFEST_V1_SIGNED:
             digest = known_good_image.digests[media_type]
-            identifier_map[
-                ImageName.parse(f"{known_good_image.image}@{digest}")
-            ] = media_type
+            identifier_map[ImageName.parse(f"{known_good_image.image}@{digest}")] = (
+                media_type
+            )
             identifier_map[
                 ImageName.parse(
                     f"{known_good_image.image}:{known_good_image.tag}@{digest}"
@@ -1346,6 +1346,7 @@ async def test__get_version(
     assert client_response.headers["Docker-Distribution-Api-Version"] == "registry/2.0"
 
 
+@pytest.mark.skip("TODO: Figure out why dockerhub now returns 'unknown resource type'")
 @pytest.mark.online
 async def test__get_version_dockerhub():
     """Test that the endpoint implements Docker Registry API v2."""
