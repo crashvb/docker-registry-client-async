@@ -205,7 +205,7 @@ class DockerRegistryClientAsync:
         self.client_session = None
 
     async def _get_auth_token(
-        self, *, credentials: str = None, endpoint: str, scope: str
+        self, *, credentials: str = None, endpoint: str, protocol: str, scope: str
     ) -> Optional[str]:
         """
         Retrieves the registry auth token for a given scope.
@@ -213,6 +213,7 @@ class DockerRegistryClientAsync:
         Args:
             credentials: The credentials to use to retrieve the auth token.
             endpoint: Registry endpoint for which to retrieve the token.
+            protocol: Protocol to use when retrieving a registry auth token.
             scope: The scope of the auth token.
 
         Returns:
@@ -222,7 +223,6 @@ class DockerRegistryClientAsync:
         # Retrieve the www-authenticate response header from the registry endpoint ...
         client_session = await self._get_client_session()
 
-        protocol = DockerRegistryClientAsync.DEFAULT_PROTOCOL
         url = f"{protocol}://{endpoint}/v2/"
         proxy = await self._get_proxy(endpoint=endpoint, protocol=protocol)
         client_response = await client_session.get(
@@ -331,13 +331,19 @@ class DockerRegistryClientAsync:
         return result
 
     async def _get_request_headers(
-        self, *, image_name: ImageName, headers: LooseHeaders = None, scope=None
+        self,
+        *,
+        image_name: ImageName,
+        protocol: str,
+        headers: LooseHeaders = None,
+        scope=None,
     ) -> LooseHeaders:
         """
         Generates request headers that contain registry credentials for a given registry endpoint.
 
         Args:
             image_name: Image name for which to retrieve the request headers.
+            protocol: Protocol to use when retrieving a token.
             headers: Optional supplemental request headers to be returned.
         Keyword Args:
             scope: Optional Scope to use when requesting an authentication token.
@@ -357,7 +363,7 @@ class DockerRegistryClientAsync:
         endpoint = image_name.resolve_endpoint()
         credentials = await self._get_credentials(endpoint=endpoint)
         token = await self._get_token(
-            credentials=credentials, endpoint=endpoint, scope=scope
+            credentials=credentials, endpoint=endpoint, protocol=protocol, scope=scope
         )
         if token:
             headers["Authorization"] = f"Bearer {token}"
@@ -397,7 +403,7 @@ class DockerRegistryClientAsync:
         return location.split("://")[0].lower()
 
     async def _get_token(
-        self, *, credentials: str = None, endpoint: str, scope: str
+        self, *, credentials: str = None, endpoint: str, protocol: str, scope: str
     ) -> Optional[str]:
         """
         Retrieves the registry auth token for a given endpoint.
@@ -405,6 +411,7 @@ class DockerRegistryClientAsync:
         Args:
             credentials: The credentials to use to retrieve the auth token.
             endpoint: Registry endpoint for which to retrieve the token.
+            protocol: Protocol to use when retrieving a registry auth token.
             scope: The scope of the auth token.
 
         Returns:
@@ -422,7 +429,10 @@ class DockerRegistryClientAsync:
             )
         if scope not in self.tokens.get(key, {}):
             token = await self._get_auth_token(
-                credentials=credentials, endpoint=endpoint, scope=scope
+                credentials=credentials,
+                endpoint=endpoint,
+                protocol=protocol,
+                scope=scope,
             )
             await self.add_token(endpoint=key, scope=scope, token=token)
 
@@ -472,6 +482,7 @@ class DockerRegistryClientAsync:
         protocol = kwargs.pop("protocol", DockerRegistryClientAsync.DEFAULT_PROTOCOL)
         headers = await self._get_request_headers(
             image_name=image_name,
+            protocol=protocol,
             scope=DockerAuthentication.SCOPE_REPOSITORY_PUSH_PATTERN.format(
                 image_name.resolve_image()
             ),
@@ -533,6 +544,7 @@ class DockerRegistryClientAsync:
         )
         headers = await self._get_request_headers(
             image_name=image_name,
+            protocol=protocol,
             scope=DockerAuthentication.SCOPE_REPOSITORY_PUSH_PATTERN.format(
                 image_name.resolve_image()
             ),
@@ -588,6 +600,7 @@ class DockerRegistryClientAsync:
         protocol = kwargs.pop("protocol", DockerRegistryClientAsync.DEFAULT_PROTOCOL)
         headers = await self._get_request_headers(
             image_name=image_name,
+            protocol=protocol,
             scope=DockerAuthentication.SCOPE_REPOSITORY_PUSH_PATTERN.format(
                 image_name.resolve_image()
             ),
@@ -662,6 +675,7 @@ class DockerRegistryClientAsync:
                 "Content-Type": MediaTypes.APPLICATION_OCTET_STREAM,
             },
             image_name=image_name,
+            protocol=protocol,
             scope=DockerAuthentication.SCOPE_REPOSITORY_PULL_PATTERN.format(
                 image_name.resolve_image()
             ),
@@ -763,6 +777,7 @@ class DockerRegistryClientAsync:
         )
         headers = await self._get_request_headers(
             image_name=image_name,
+            protocol=protocol,
             scope=DockerAuthentication.SCOPE_REPOSITORY_PULL_PATTERN.format(
                 image_name.resolve_image()
             ),
@@ -808,7 +823,7 @@ class DockerRegistryClientAsync:
             image_name: The image name.
         Keyword Args:
             last: Result set will include values lexically after last.
-            n: Limit the number of entries in each response. It not present, all entries will be returned.
+            n: Limit the number of entries in each response. If not present, all entries will be returned.
             protocol: Protocol to use when connecting to the endpoint.
 
         Returns:
@@ -823,6 +838,7 @@ class DockerRegistryClientAsync:
         headers = await self._get_request_headers(
             headers={"Accept": MediaTypes.APPLICATION_JSON},
             image_name=image_name,
+            protocol=protocol,
             scope=DockerAuthentication.SCOPE_REGISTRY_CATALOG,
         )
         url = f"{protocol}://{image_name.resolve_endpoint()}/v2/_catalog"
@@ -850,7 +866,7 @@ class DockerRegistryClientAsync:
             image_name: The image name.
         Keyword Args:
             last: Result set will include values lexically after last.
-            n: Limit the number of entries in each response. It not present, all entries will be returned.
+            n: Limit the number of entries in each response. If not present, all entries will be returned.
             protocol: Protocol to use when connecting to the endpoint.
 
         Returns:
@@ -892,6 +908,7 @@ class DockerRegistryClientAsync:
         headers = await self._get_request_headers(
             headers={"Accept": accept},
             image_name=image_name,
+            protocol=protocol,
             scope=DockerAuthentication.SCOPE_REPOSITORY_PULL_PATTERN.format(
                 image_name.resolve_image()
             ),
@@ -987,6 +1004,7 @@ class DockerRegistryClientAsync:
         headers = await self._get_request_headers(
             headers={"Accept": MediaTypes.APPLICATION_JSON},
             image_name=image_name,
+            protocol=protocol,
             scope=DockerAuthentication.SCOPE_REPOSITORY_PULL_PATTERN.format(
                 image_name.resolve_image()
             ),
@@ -1077,6 +1095,7 @@ class DockerRegistryClientAsync:
         headers = await self._get_request_headers(
             headers={"Content-Type": MediaTypes.APPLICATION_JSON},
             image_name=image_name,
+            protocol=protocol,
             scope=DockerAuthentication.SCOPE_REGISTRY_CATALOG,
         )
         url = f"{protocol}://{image_name.resolve_endpoint()}/v{version}/"
@@ -1134,6 +1153,7 @@ class DockerRegistryClientAsync:
         url = f"{protocol}://{image_name.resolve_endpoint()}/v2/{image_name.resolve_image()}/blobs/{digest}"
         headers = await self._get_request_headers(
             image_name=image_name,
+            protocol=protocol,
             scope=DockerAuthentication.SCOPE_REPOSITORY_PULL_PATTERN.format(
                 image_name.resolve_image()
             ),
@@ -1208,6 +1228,7 @@ class DockerRegistryClientAsync:
         headers = await self._get_request_headers(
             headers={"Accept": accept},
             image_name=image_name,
+            protocol=protocol,
             scope=DockerAuthentication.SCOPE_REPOSITORY_PULL_PATTERN.format(
                 image_name.resolve_image()
             ),
@@ -1282,6 +1303,7 @@ class DockerRegistryClientAsync:
         headers = await self._get_request_headers(
             headers={"Content-Type": MediaTypes.APPLICATION_OCTET_STREAM},
             image_name=image_name,
+            protocol=protocol,
             scope=DockerAuthentication.SCOPE_REPOSITORY_PULL_PATTERN.format(
                 image_name.resolve_image()
             ),
@@ -1401,6 +1423,7 @@ class DockerRegistryClientAsync:
         headers = await self._get_request_headers(
             headers={"Content-Type": MediaTypes.APPLICATION_OCTET_STREAM},
             image_name=image_name,
+            protocol=protocol,
             scope=DockerAuthentication.SCOPE_REPOSITORY_PUSH_PATTERN.format(
                 image_name.resolve_image()
             ),
@@ -1509,6 +1532,7 @@ class DockerRegistryClientAsync:
         headers = await self._get_request_headers(
             headers={"Content-Type": MediaTypes.APPLICATION_OCTET_STREAM},
             image_name=image_name,
+            protocol=protocol,
             scope=DockerAuthentication.SCOPE_REPOSITORY_PUSH_PATTERN.format(
                 image_name.resolve_image()
             ),
@@ -1641,6 +1665,7 @@ class DockerRegistryClientAsync:
         headers = await self._get_request_headers(
             headers={"Content-Type": media_type},
             image_name=image_name,
+            protocol=protocol,
             scope=DockerAuthentication.SCOPE_REPOSITORY_PUSH_PATTERN.format(
                 image_name.resolve_image()
             ),

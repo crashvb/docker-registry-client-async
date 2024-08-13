@@ -20,7 +20,9 @@ import aiofiles
 import pytest
 
 from aiohttp import TCPConnector, ThreadedResolver
+from aiohttp.client_exceptions import ClientConnectorSSLError
 from pytest_docker_registry_fixtures import (
+    DockerRegistryInsecure,
     DockerRegistrySecure,
     ImageName as PDRFImageName,
     replicate_manifest_list,
@@ -282,7 +284,9 @@ async def replicate_manifest_lists(docker_registry_secure: DockerRegistrySecure)
                 image_name.image
             )
             auth_header_src = await docker_registry_client_async._get_request_headers(
-                image_name=image_name, scope=scope
+                image_name=image_name,
+                protocol=DockerRegistryClientAsync.DEFAULT_PROTOCOL,
+                scope=scope,
             )
             if not auth_header_src:
                 LOGGER.warning(
@@ -337,7 +341,9 @@ async def test_add_token(docker_registry_client_async: DockerRegistryClientAsync
             endpoint=endpoint, scope=scope, token=token
         )
         result = await docker_registry_client_async._get_token(
-            endpoint=endpoint, scope=scope
+            endpoint=endpoint,
+            protocol=DockerRegistryClientAsync.DEFAULT_PROTOCOL,
+            scope=scope,
         )
         assert result == token
 
@@ -355,6 +361,7 @@ async def test__get_auth_token_dockerhub():
             token = await docker_registry_client_async._get_auth_token(
                 credentials=credentials,
                 endpoint=endpoint,
+                protocol=DockerRegistryClientAsync.DEFAULT_PROTOCOL,
                 scope=DockerAuthentication.SCOPE_REPOSITORY_PULL_PATTERN.format(
                     "busybox"
                 ),
@@ -371,6 +378,7 @@ async def test__get_auth_token_dockerhub_anonymous():
     async with DockerRegistryClientAsync() as docker_registry_client_async:
         token = await docker_registry_client_async._get_auth_token(
             endpoint=Indices.DOCKERHUB,
+            protocol=DockerRegistryClientAsync.DEFAULT_PROTOCOL,
             scope=DockerAuthentication.SCOPE_REPOSITORY_PULL_PATTERN.format("busybox"),
         )
         assert len(token) > 100
@@ -389,6 +397,7 @@ async def test__get_auth_token_quay():
             token = await docker_registry_client_async._get_auth_token(
                 credentials=credentials,
                 endpoint=endpoint,
+                protocol=DockerRegistryClientAsync.DEFAULT_PROTOCOL,
                 # scope=QuayAuthentication.SCOPE_REPOSITORY_PULL_PATTERN.format(
                 scope=DockerAuthentication.SCOPE_REPOSITORY_PULL_PATTERN.format(
                     "crio/busybox"
@@ -412,6 +421,7 @@ async def test__get_auth_token_redhat():
             token = await docker_registry_client_async._get_auth_token(
                 credentials=credentials,
                 endpoint=endpoint,
+                protocol=DockerRegistryClientAsync.DEFAULT_PROTOCOL,
                 # scope=RedHatAuthentication.SCOPE_REPOSITORY_PULL_PATTERN.format(
                 scope=DockerAuthentication.SCOPE_REPOSITORY_PULL_PATTERN.format(
                     "ocs4/ocs-rhel8-operator"
@@ -577,7 +587,9 @@ async def test__get_request_headers_basic_auth(
     """Test request headers retrieval."""
     existing_header = "existing-header"
     headers = await docker_registry_client_async._get_request_headers(
-        headers={existing_header: "1"}, image_name=known_good_image.image_name
+        headers={existing_header: "1"},
+        image_name=known_good_image.image_name,
+        protocol=DockerRegistryClientAsync.DEFAULT_PROTOCOL,
     )
     assert (
         docker_registry_secure.auth_header["Authorization"] == headers["Authorization"]
@@ -592,7 +604,9 @@ async def test__get_request_headers_token_anonymous():
     existing_header = "existing-header"
     async with DockerRegistryClientAsync() as docker_registry_client_async:
         headers = await docker_registry_client_async._get_request_headers(
-            headers={existing_header: "1"}, image_name=image_name
+            headers={existing_header: "1"},
+            image_name=image_name,
+            protocol=DockerRegistryClientAsync.DEFAULT_PROTOCOL,
         )
         assert headers["Authorization"].startswith("Bearer ")
         assert len(headers["Authorization"]) > 100
@@ -612,6 +626,7 @@ async def test__get_token_dockerhub():
             token = await docker_registry_client_async._get_token(
                 credentials=credentials,
                 endpoint=endpoint,
+                protocol=DockerRegistryClientAsync.DEFAULT_PROTOCOL,
                 scope=DockerAuthentication.SCOPE_REPOSITORY_PULL_PATTERN.format(
                     "busybox"
                 ),
@@ -628,6 +643,7 @@ async def test__get_token_dockerhub_anonymous():
     async with DockerRegistryClientAsync() as docker_registry_client_async:
         token = await docker_registry_client_async._get_token(
             endpoint=Indices.DOCKERHUB,
+            protocol=DockerRegistryClientAsync.DEFAULT_PROTOCOL,
             scope=DockerAuthentication.SCOPE_REPOSITORY_PULL_PATTERN.format("busybox"),
         )
         assert len(token) > 100
@@ -646,6 +662,7 @@ async def test__get_token_quay():
             token = await docker_registry_client_async._get_token(
                 credentials=credentials,
                 endpoint=endpoint,
+                protocol=DockerRegistryClientAsync.DEFAULT_PROTOCOL,
                 # scope=QuayAuthentication.SCOPE_REPOSITORY_PULL_PATTERN.format(
                 scope=DockerAuthentication.SCOPE_REPOSITORY_PULL_PATTERN.format(
                     "crio/busybox"
@@ -669,6 +686,7 @@ async def test__get_token_redhat():
             token = await docker_registry_client_async._get_token(
                 credentials=credentials,
                 endpoint=endpoint,
+                protocol=DockerRegistryClientAsync.DEFAULT_PROTOCOL,
                 # scope=RedHatAuthentication.SCOPE_REPOSITORY_PULL_PATTERN.format(
                 scope=DockerAuthentication.SCOPE_REPOSITORY_PULL_PATTERN.format(
                     "ocs4/ocs-rhel8-operator"
@@ -2286,6 +2304,7 @@ async def test_issue_26():
                     token = await docker_registry_client_async._get_token(
                         credentials=credentials,
                         endpoint=endpoint,
+                        protocol=DockerRegistryClientAsync.DEFAULT_PROTOCOL,
                         # scope=RedHatAuthentication.SCOPE_REPOSITORY_PULL_PATTERN.format(
                         scope=DockerAuthentication.SCOPE_REPOSITORY_PULL_PATTERN.format(
                             "ocs4/ocs-rhel8-operator"
@@ -2362,6 +2381,26 @@ async def test_issue_29():
         response.manifest.get_media_type()
         == DockerMediaTypes.DISTRIBUTION_MANIFEST_V1_SIGNED
     )
+
+
+@pytest.mark.online
+async def test_issue_35(
+    credentials_store_path: Path, docker_registry_insecure: DockerRegistryInsecure
+):
+    """Test issue #35."""
+    image_name = ImageName("")
+    image_name.endpoint = docker_registry_insecure.endpoint
+    async with DockerRegistryClientAsync() as docker_registry_client_async:
+        assert await docker_registry_client_async.get_version(
+            image_name=image_name, protocol="http"
+        )
+        with pytest.raises(ClientConnectorSSLError) as exception:
+            assert await docker_registry_client_async.get_version(
+                image_name=image_name, protocol="https"
+            )
+        assert f"Cannot connect to host {docker_registry_insecure.endpoint}" in str(
+            exception.value
+        )
 
 
 # TODO: Total image pull (with exists() checks)
