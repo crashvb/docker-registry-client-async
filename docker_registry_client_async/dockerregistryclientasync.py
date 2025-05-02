@@ -80,6 +80,7 @@ class DockerRegistryClientAsync:
         f"{DockerMediaTypes.DISTRIBUTION_MANIFEST_V1};q=0.5"
     )
     DEFAULT_PROTOCOL = os.environ.get("DRCA_DEFAULT_PROTOCOL", "https")
+    SCOPE_JSON_KWARGS = "__json_kwargs__"
 
     def __init__(
         self,
@@ -181,6 +182,27 @@ class DockerRegistryClientAsync:
             )
         self.credentials[endpoint] = credentials
 
+    async def add_auth_token_json_kwargs(
+        self, *, endpoint: Union[Pattern, str], json_kwargs: Dict
+    ):
+        """
+        Assigns keyword arguments to be provided to ClientResponse.json() in memory for a given endpoint.
+
+        Args:
+            endpoint: Registry endpoint (<hostname>:[<port>]) for which to assign the token.
+            json_kwargs: Keyword arguments to be assigned.
+        """
+        if not isinstance(endpoint, Pattern):
+            endpoint = await DockerRegistryClientAsync._get_endpoint_pattern(
+                endpoint=endpoint
+            )
+        if endpoint not in self.tokens:
+            self.tokens[endpoint] = {}
+        # Note: What are the odds of colliding with a real scope ... too small to worry about ;)
+        self.tokens[endpoint][DockerRegistryClientAsync.SCOPE_JSON_KWARGS] = json.dumps(
+            json_kwargs
+        )
+
     async def add_token(self, *, endpoint: Union[Pattern, str], scope: str, token: str):
         """
         Assigns a registry auth token in memory for a given endpoint and scope.
@@ -205,7 +227,13 @@ class DockerRegistryClientAsync:
         self.client_session = None
 
     async def _get_auth_token(
-        self, *, credentials: str = None, endpoint: str, protocol: str, scope: str
+        self,
+        *,
+        credentials: str = None,
+        endpoint: str,
+        json_kwargs: Optional[Dict],
+        protocol: str,
+        scope: str,
     ) -> Optional[str]:
         """
         Retrieves the registry auth token for a given scope.
@@ -213,6 +241,7 @@ class DockerRegistryClientAsync:
         Args:
             credentials: The credentials to use to retrieve the auth token.
             endpoint: Registry endpoint for which to retrieve the token.
+            json_kwargs: Keyword arguments to be provided to ClientResponse.json().
             protocol: Protocol to use when retrieving a registry auth token.
             scope: The scope of the auth token.
 
@@ -260,7 +289,7 @@ class DockerRegistryClientAsync:
             ssl=self.ssl,
             url=url,
         )
-        payload = await client_response.json()
+        payload = await client_response.json(**json_kwargs)
         return payload.get("token", None)
 
     async def _get_client_session(self) -> ClientSession:
@@ -428,9 +457,15 @@ class DockerRegistryClientAsync:
                 endpoint=endpoint
             )
         if scope not in self.tokens.get(key, {}):
+            json_kwargs = self.tokens.get(key, {}).get(
+                DockerRegistryClientAsync.SCOPE_JSON_KWARGS, {}
+            )
+            if json_kwargs:
+                json_kwargs = json.loads(json_kwargs)
             token = await self._get_auth_token(
                 credentials=credentials,
                 endpoint=endpoint,
+                json_kwargs=json_kwargs,
                 protocol=protocol,
                 scope=scope,
             )
@@ -857,13 +892,14 @@ class DockerRegistryClientAsync:
         )
 
     async def get_catalog(
-        self, image_name: ImageName, **kwargs
+        self, image_name: ImageName, json_kwargs: Optional[Dict], **kwargs
     ) -> DockerRegistryClientAsyncGetCatalog:
         """
         List a set of available repositories in the local registry cluster.
 
         Args:
             image_name: The image name.
+            json_kwargs: Keyword arguments to be provided to ClientResponse.json().
         Keyword Args:
             last: Result set will include values lexically after last.
             n: Limit the number of entries in each response. If not present, all entries will be returned.
@@ -877,7 +913,7 @@ class DockerRegistryClientAsync:
         client_response = await self._get_catalog(
             image_name, raise_for_status=True, **kwargs
         )
-        catalog = await client_response.json()
+        catalog = await client_response.json(**json_kwargs)
         return DockerRegistryClientAsyncGetCatalog(
             catalog=catalog, client_response=client_response
         )
@@ -1025,13 +1061,14 @@ class DockerRegistryClientAsync:
         )
 
     async def get_tag_list(
-        self, image_name: ImageName, **kwargs
+        self, image_name: ImageName, json_kwargs: Optional[Dict], **kwargs
     ) -> DockerRegistryClientAsyncGetTags:
         """
         Fetch the tags under the repository identified by name.
 
         Args:
             image_name: The image name.
+            json_kwargs: Keyword arguments to be provided to ClientResponse.json().
         Keyword Args:
             protocol: Protocol to use when connecting to the endpoint.
 
@@ -1043,7 +1080,7 @@ class DockerRegistryClientAsync:
         client_response = await self._get_tags(
             image_name, raise_for_status=True, **kwargs
         )
-        tags = await client_response.json()
+        tags = await client_response.json(**json_kwargs)
         tags = [
             ImageName(image_name.image, endpoint=image_name.endpoint, tag=tag)
             for tag in tags["tags"]
@@ -1053,13 +1090,14 @@ class DockerRegistryClientAsync:
         )
 
     async def get_tags(
-        self, image_name: ImageName, **kwargs
+        self, image_name: ImageName, json_kwargs: Optional[Dict], **kwargs
     ) -> DockerRegistryClientAsyncGetTags:
         """
         Fetch the tags under the repository identified by name.
 
         Args:
             image_name: The image name.
+            json_kwargs: Keyword arguments to be provided to ClientResponse.json().
         Keyword Args:
             protocol: Protocol to use when connecting to the endpoint.
 
@@ -1071,7 +1109,7 @@ class DockerRegistryClientAsync:
         client_response = await self._get_tags(
             image_name, raise_for_status=True, **kwargs
         )
-        tags = await client_response.json()
+        tags = await client_response.json(**json_kwargs)
         return DockerRegistryClientAsyncGetTags(
             client_response=client_response, tags=tags
         )

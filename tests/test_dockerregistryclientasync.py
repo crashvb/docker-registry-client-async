@@ -332,6 +332,25 @@ async def test_add_credentials(docker_registry_client_async: DockerRegistryClien
     assert result == credentials
 
 
+async def test_add_auth_token_json_kwargs(
+    docker_registry_client_async: DockerRegistryClientAsync,
+):
+    """Test that tokens can be assigned."""
+    endpoint = f"endpoint{time()}"
+    json_kwargs = {f"key{time()}": f"value{time()}"}
+    await docker_registry_client_async.add_auth_token_json_kwargs(
+        endpoint=endpoint, json_kwargs=json_kwargs
+    )
+
+    result = await docker_registry_client_async._get_token(
+        endpoint=endpoint,
+        protocol=DockerRegistryClientAsync.DEFAULT_PROTOCOL,
+        scope=DockerRegistryClientAsync.SCOPE_JSON_KWARGS,
+    )
+    assert result
+    assert json_kwargs == json.loads(result)
+
+
 async def test_add_token(docker_registry_client_async: DockerRegistryClientAsync):
     """Test that tokens can be assigned."""
     endpoint = "endpoint"
@@ -2402,6 +2421,21 @@ async def test_issue_35(
         assert f"Cannot connect to host {docker_registry_insecure.endpoint}" in str(
             exception.value
         )
+
+
+@pytest.mark.online
+async def test_issue_36(credentials_store_path: Path):
+    """Test issue #36."""
+    endpoint = "cgr.dev"
+    image_name = ImageName.parse(f"{endpoint}/chainguard/python:latest")
+    async with DockerRegistryClientAsync() as docker_registry_client_async:
+        await docker_registry_client_async.add_auth_token_json_kwargs(
+            endpoint=endpoint, json_kwargs={"content_type": "text/plain"}
+        )
+        response = await docker_registry_client_async.head_manifest(
+            image_name=image_name
+        )
+        assert response.result
 
 
 # TODO: Total image pull (with exists() checks)
