@@ -189,7 +189,7 @@ class DockerRegistryClientAsync:
         Assigns keyword arguments to be provided to ClientResponse.json() in memory for a given endpoint.
 
         Args:
-            endpoint: Registry endpoint (<hostname>:[<port>]) for which to assign the token.
+            endpoint: Registry endpoint (<hostname>:[<port>]) for which to assign the keyword arguments.
             json_kwargs: Keyword arguments to be assigned.
         """
         if not isinstance(endpoint, Pattern):
@@ -231,7 +231,7 @@ class DockerRegistryClientAsync:
         *,
         credentials: str = None,
         endpoint: str,
-        json_kwargs: Optional[Dict],
+        json_kwargs: Optional[Dict] = None,
         protocol: str,
         scope: str,
     ) -> Optional[str]:
@@ -289,6 +289,8 @@ class DockerRegistryClientAsync:
             ssl=self.ssl,
             url=url,
         )
+        if json_kwargs is None:
+            json_kwargs = {}
         payload = await client_response.json(**json_kwargs)
         return payload.get("token", None)
 
@@ -892,7 +894,7 @@ class DockerRegistryClientAsync:
         )
 
     async def get_catalog(
-        self, image_name: ImageName, json_kwargs: Optional[Dict], **kwargs
+        self, image_name: ImageName, *, json_kwargs: Optional[Dict] = None, **kwargs
     ) -> DockerRegistryClientAsyncGetCatalog:
         """
         List a set of available repositories in the local registry cluster.
@@ -913,6 +915,8 @@ class DockerRegistryClientAsync:
         client_response = await self._get_catalog(
             image_name, raise_for_status=True, **kwargs
         )
+        if json_kwargs is None:
+            json_kwargs = {}
         catalog = await client_response.json(**json_kwargs)
         return DockerRegistryClientAsyncGetCatalog(
             catalog=catalog, client_response=client_response
@@ -1061,7 +1065,7 @@ class DockerRegistryClientAsync:
         )
 
     async def get_tag_list(
-        self, image_name: ImageName, json_kwargs: Optional[Dict], **kwargs
+        self, image_name: ImageName, *, json_kwargs: Optional[Dict] = None, **kwargs
     ) -> DockerRegistryClientAsyncGetTags:
         """
         Fetch the tags under the repository identified by name.
@@ -1080,6 +1084,8 @@ class DockerRegistryClientAsync:
         client_response = await self._get_tags(
             image_name, raise_for_status=True, **kwargs
         )
+        if json_kwargs is None:
+            json_kwargs = {}
         tags = await client_response.json(**json_kwargs)
         tags = [
             ImageName(image_name.image, endpoint=image_name.endpoint, tag=tag)
@@ -1090,7 +1096,7 @@ class DockerRegistryClientAsync:
         )
 
     async def get_tags(
-        self, image_name: ImageName, json_kwargs: Optional[Dict], **kwargs
+        self, image_name: ImageName, *, json_kwargs: Optional[Dict] = None, **kwargs
     ) -> DockerRegistryClientAsyncGetTags:
         """
         Fetch the tags under the repository identified by name.
@@ -1109,6 +1115,8 @@ class DockerRegistryClientAsync:
         client_response = await self._get_tags(
             image_name, raise_for_status=True, **kwargs
         )
+        if json_kwargs is None:
+            json_kwargs = {}
         tags = await client_response.json(**json_kwargs)
         return DockerRegistryClientAsyncGetTags(
             client_response=client_response, tags=tags
