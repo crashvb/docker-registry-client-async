@@ -292,7 +292,9 @@ class DockerRegistryClientAsync:
         if json_kwargs is None:
             json_kwargs = {}
         payload = await client_response.json(**json_kwargs)
-        return payload.get("token", None)
+        if "token" in payload:
+            return payload["token"]
+        return payload.get("access_token", None)
 
     async def _get_client_session(self) -> ClientSession:
         """
