@@ -278,9 +278,13 @@ class DockerRegistryClientAsync:
         headers = {}
         if credentials:
             headers["Authorization"] = f"Basic {credentials}"
-        url = GENERIC_OAUTH2_URL_PATTERN.format(
-            bearer["realm"], bearer["service"], scope
-        )
+        if "service" not in bearer:
+            oauth2_url_pattern_without_service = "{0}?scope={1}&client_id=docker-registry-client-async"
+            url = oauth2_url_pattern_without_service.format(bearer["realm"], scope)
+        else:
+            url = GENERIC_OAUTH2_URL_PATTERN.format(
+                bearer["realm"], bearer["service"], scope
+            )
         client_response = await client_session.get(
             headers=headers,
             raise_for_status=True,
@@ -292,7 +296,9 @@ class DockerRegistryClientAsync:
         if json_kwargs is None:
             json_kwargs = {}
         payload = await client_response.json(**json_kwargs)
-        return payload.get("token", None)
+        if "token" in payload:
+            return payload["token"]
+        return payload.get("access_token", None)
 
     async def _get_client_session(self) -> ClientSession:
         """
